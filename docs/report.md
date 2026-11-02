@@ -16,7 +16,7 @@
 | Giảng viên | Đỗ Thanh Thái |
 | Tên đề tài | **Kho dữ liệu phân tích bán hàng – giao hàng và hệ hỗ trợ quyết định cải thiện sự hài lòng khách hàng cho sàn TMĐT Olist** |
 | Nhóm | [TODO] số nhóm |
-| Link mã nguồn (GitHub) | [TODO] |
+| Link mã nguồn (GitHub) | https://github.com/taita2005/co4031-olist-dw-dss |
 | Link dữ liệu (Google Drive) | [TODO] (hoặc Kaggle: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) |
 | Link video thuyết trình | [TODO] (chỉ khi thuyết trình qua video — bắt buộc theo §4.3, §5.1 của đề) |
 
@@ -1065,7 +1065,7 @@ Với mỗi nhóm, hệ thống giả sử **toàn bộ đơn trễ** trong nhó
 | Thành phần | Trạng thái |
 |---|---|
 | Báo cáo PDF | [TODO] viết từ tài liệu này |
-| Mã nguồn `src/` (SQL, Python, frontend, ETL) — GitHub | ✅ có; [TODO] push và ghi link |
+| Mã nguồn `src/` (SQL, Python, frontend, ETL) — GitHub | ✅ https://github.com/taita2005/co4031-olist-dw-dss |
 | Dữ liệu mẫu `data/` | [TODO] link Google Drive chứa CSV (GitHub không chứa CSV) |
 | Slide PDF | [TODO] |
 | Link video trên trang bìa | [TODO] nếu thuyết trình qua video |
@@ -1139,7 +1139,7 @@ Hệ thống đi đủ các pha ra quyết định của Simon, từ phát hiệ
 Chi tiết xem `README.md` mục 1. Tóm tắt:
 
 ```bash
-git clone <URL> BTL && cd BTL
+git clone https://github.com/taita2005/co4031-olist-dw-dss.git BTL && cd BTL
 # đặt CSV Olist vào data/ (xem data/README.md)
 bash scripts/setup_env.sh        # cài môi trường cục bộ (~3–5 phút, chỉ lần đầu)
 source scripts/env.sh

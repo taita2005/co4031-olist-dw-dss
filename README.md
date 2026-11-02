@@ -4,7 +4,15 @@ Kho dữ liệu (Data Warehouse) phân tích **bán hàng – giao hàng** và h
 
 > *Nên ưu tiên cải thiện giao hàng ở bang / danh mục nào, và cải thiện bao nhiêu, để giảm tỷ lệ đánh giá 1–2 sao?*
 
-Đề xuất đầy đủ (bài toán, thiết kế, ánh xạ với lecture) nằm trong [docs/proposal.md](docs/proposal.md). README này tập trung vào **code**: cách chạy, code nằm ở đâu, và cần review những gì.
+**Repo:** https://github.com/taita2005/co4031-olist-dw-dss
+
+README này tập trung vào **code**: cách chạy, code nằm ở đâu, và cần review những gì. Các tài liệu khác nằm trong `docs/`:
+
+| File | Nội dung | Khi nào đọc |
+|---|---|---|
+| [docs/proposal.md](docs/proposal.md) | Đề xuất đã duyệt: bài toán, thiết kế, ánh xạ với lecture, bảng thay đổi so với bản đầu | Muốn hiểu vì sao thiết kế như vậy |
+| [docs/report.md](docs/report.md) | Bản báo cáo thô đầy đủ (5 section), mọi số liệu ở dạng bảng, đối chiếu với yêu cầu của đề | Viết báo cáo PDF chính thức và slide |
+| [docs/handoff.md](docs/handoff.md) | Bàn giao tiến độ: việc đã xong, việc còn lại theo thứ tự, các quyết định đã chốt kèm lý do | Bắt đầu một phiên làm việc mới, hoặc cần biết bước tiếp theo |
 
 ---
 
@@ -12,13 +20,13 @@ Kho dữ liệu (Data Warehouse) phân tích **bán hàng – giao hàng** và h
 
 Mọi thứ (Python 3.12, PostgreSQL 16, các package) được cài vào **môi trường riêng trong thư mục project** bằng micromamba. **Không cần cài sẵn Python, PostgreSQL hay Docker**, và không có gì bị cài vào hệ thống. Muốn gỡ sạch: xoá thư mục project (hoặc chỉ xoá `.tools/ .mamba/ .env-btl/ .pgdata/ models/`).
 
-**Yêu cầu:** macOS (Apple Silicon hoặc Intel) hoặc Linux, có sẵn `git`, `curl`, kết nối Internet cho lần cài đầu (~250MB). Windows: chạy trong WSL (Ubuntu).
+**Yêu cầu:** macOS (Apple Silicon hoặc Intel) hoặc Linux, có sẵn `git`, `curl`, kết nối Internet cho lần cài đầu. Cần khoảng 2GB trống (môi trường ~1GB, database ~650MB). Windows: chạy trong WSL (Ubuntu).
 
 ### 1.1 Lần đầu sau khi clone (~5 phút)
 
 ```bash
 # 1. Lấy code
-git clone <URL-repo-của-nhóm> BTL
+git clone https://github.com/taita2005/co4031-olist-dw-dss.git BTL
 cd BTL
 
 # 2. Tải dữ liệu Olist từ Kaggle và đặt các file CSV vào data/
@@ -102,6 +110,10 @@ Ba schema trong cùng database `olist_dw`:
 ## 3. Bản đồ code
 
 ```
+README.md              file này
+CLAUDE.md              hướng dẫn cho Claude Code (lệnh, kiến trúc, đặc điểm dữ liệu)
+CO4031_Assignment_HK261.pdf   đề bài tập lớn
+.gitignore             bỏ qua CSV, lectures/, môi trường, database, models/
 scripts/
   env.sh               biến môi trường dùng chung (đường dẫn env, PGPORT=5433…)
   setup_env.sh         tải micromamba + tạo env từ environment.yml
@@ -126,8 +138,12 @@ src/
     pages/2_Delivery.py   phân tích giao hàng & review
     pages/3_DSS.py     giao diện DSS
 
-models/                (sinh ra) decision_tree.joblib, rules.txt, metrics.json
-docs/proposal.md       đề xuất đã duyệt
+models/                (sinh ra, không có trên GitHub) decision_tree.joblib, rules.txt, metrics.json
+data/README.md         link tải dữ liệu Olist + danh sách CSV cần đặt vào data/ (CSV không có trên GitHub)
+docs/
+  proposal.md          đề xuất đã duyệt (+ bảng thay đổi so với bản đầu)
+  report.md            bản báo cáo thô đầy đủ, số liệu dạng bảng
+  handoff.md           bàn giao: đã xong / còn lại / quyết định đã chốt
 ```
 
 ---
@@ -161,7 +177,7 @@ docs/proposal.md       đề xuất đã duyệt
 
 | Loại | Quy tắc |
 |---|---|
-| Cleansing | Đơn có nhiều review → lấy review trả lời gần nhất. 610 sản phẩm thiếu danh mục → `unknown`. 2 danh mục thiếu bản dịch → bổ sung tay. CSV dịch danh mục có BOM → đọc bằng `utf-8-sig`. |
+| Cleansing | Đơn có nhiều review → lấy review trả lời gần nhất. 610 sản phẩm thiếu danh mục → `unknown`. 2 danh mục thiếu bản dịch → bổ sung tay. Chuỗi rỗng → NULL khi ép kiểu. (Riêng BOM ở đầu CSV dịch danh mục được xử lý ở bước Extract trong `run_etl.py`, đọc bằng `utf-8-sig`.) |
 | Mapping | Tên danh mục PT → EN; timestamp → `date_key` (yyyymmdd); bang → vùng (5 vùng Brazil). Zip code giữ dạng TEXT (có số 0 đầu). |
 | Business rules | Khách hàng thật = `customer_unique_id` (vì `customer_id` sinh mới mỗi đơn). `fact_delivery` chỉ gồm đơn `delivered` có ngày giao. `is_late` = giao thực tế > ngày dự kiến. Review xấu = điểm ≤ 2. |
 | Attribute construction | `delivery_days`, `estimated_days`, `delay_days`, `volume_cm3`, `region`. |

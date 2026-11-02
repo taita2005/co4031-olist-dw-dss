@@ -4,8 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This is a university group assignment (CO4031 – Data Warehouse & Decision Support Systems, HCMUT, semester 261). As of 2026-11-02 the repo holds no code yet, only the assignment spec (`CO4031_Assignment_HK261.pdf`, in Vietnamese), lecture slides (`lectures/`), and the raw source data (`dataset/`). The approved project plan is in `docs/proposal.md` (in Vietnamese); read it before implementing anything. In short:
-- **Stack:** Python + PostgreSQL (Docker) + Streamlit, with scikit-learn for the DSS model.
+This is a university group assignment (CO4031 – Data Warehouse & Decision Support Systems, HCMUT, semester 261). The code is complete and verified; the remaining work is the report, slides and submission. **Start with `docs/handoff.md`**, which lists what is done, what remains in order, and the decisions already made.
+
+Other docs, all in Vietnamese: `docs/proposal.md` (the approved design and how it changed), `docs/report.md` (the full raw report with every figure as a table), and `README.md` (how to run, code map, review checklist).
+
+Repo: https://github.com/taita2005/co4031-olist-dw-dss. `lectures/` (lecture slides) and `data/*.csv` exist locally but are git-ignored.
+
+In short:
+- **Stack:** Python + PostgreSQL + Streamlit, with scikit-learn for the DSS model, all in a project-local micromamba env (no Docker).
 - **Architecture:** a three-tier DW. CSVs are loaded into a `staging` schema, then into a `dw` schema that has a fact constellation (`fact_sales` at order-item grain, `fact_delivery` at delivered-order grain) sharing `dim_date`, `dim_customer`, `dim_seller` and `dim_product`.
 - **Frontend:** a Streamlit OLAP dashboard.
 - **DSS:** a decision tree (entropy) that predicts bad reviews (score ≤ 2), plus what-if, sensitivity and goal-seeking analysis on late-delivery rate.
@@ -46,7 +52,7 @@ The deliverable is a complete system built around a data warehouse:
 
 Submission is one ZIP containing: report (PDF), source code in `src/` (SQL scripts, Python/R, frontend, ETL; GitHub preferred), sample data in `data/`, slides (PDF), and a video link on the report cover if presenting by video. **Deadline: 23:59, 15/11/2026.** Lay out new code to match that `src/` / `data/` structure.
 
-## Source data: Brazilian E-Commerce (Olist), `dataset/`
+## Source data: Brazilian E-Commerce (Olist), `data/`
 
 There are 9 CSVs covering about 99k orders, with purchase timestamps from 2016-09-04 to 2018-10-17. How they relate:
 

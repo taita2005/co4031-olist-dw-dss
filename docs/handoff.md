@@ -37,10 +37,10 @@ Người dùng viết tiếng Việt. Khi có điểm chưa rõ thì hỏi lại
    - Gồm Home, OLAP (đủ 5 phép toán, chọn được 1 trong 2 fact), Delivery và DSS (4 tab).
    - Đã test bằng `streamlit.testing.v1.AppTest` và khởi động server thật.
 5. **Tài liệu:** README, `data/README.md`, proposal (đã cập nhật), `docs/report.md`, CLAUDE.md.
-6. **Git:** đã `git init` và có `.gitignore`, nhưng **chưa commit và chưa có remote**.
+6. **Git / GitHub:** đã push lên https://github.com/taita2005/co4031-olist-dw-dss, nhánh `main`.
    - `.gitignore` bỏ qua: CSV trong `data/`, `lectures/`, `.env-btl/`, `.pgdata/`, `.mamba/`, `.tools/`, `models/`.
    - File đề PDF vẫn được đưa lên.
-   - Người dùng đã nhận hướng dẫn tạo repo trên web và push bằng Personal Access Token. Máy không có `gh`, và git chưa khai báo user.name / user.email.
+   - Máy không có `gh`. Người dùng tự commit và push qua HTTPS.
 
 **Trạng thái máy hiện tại:**
 - PostgreSQL **đang tắt**.
@@ -49,7 +49,7 @@ Người dùng viết tiếng Việt. Khi có điểm chưa rõ thì hỏi lại
 
 ## Còn lại (theo thứ tự)
 
-1. **Push lên GitHub.** Người dùng tự làm: khai báo tên/email cho git, tạo repo Private (không tick tạo README), commit, rồi `git push -u origin main`. Sau đó mời 2 bạn làm collaborator. *Không tự commit hay push nếu người dùng chưa yêu cầu.*
+1. **Mời 2 bạn làm collaborator trên GitHub** (Settings → Collaborators), nếu người dùng chưa làm. Repo đã được push. *Không tự commit hay push nếu người dùng chưa yêu cầu.*
 2. **Upload CSV lên Google Drive.** Đề §5.1 yêu cầu có `data/`, nhưng GitHub không chứa CSV. Sau khi có link thì ghi vào `data/README.md` và vào trang bìa trong `docs/report.md`.
 3. **2 bạn review code** theo checklist ở README mục 6, sau đó sửa theo góp ý. Kế hoạch là review trong 03–07/11.
 4. **Chụp 18 hình** theo danh sách ở `docs/report.md` Phụ lục C. Cần bật DB và Streamlit để chụp. Sơ đồ ERD và schema có thể vẽ bằng dbdiagram.io hoặc Mermaid.
