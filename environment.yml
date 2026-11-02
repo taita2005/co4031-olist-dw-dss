@@ -1,0 +1,13 @@
+name: btl-dw
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - postgresql=16
+  - pandas=2.2
+  - sqlalchemy=2.0
+  - psycopg2=2.9
+  - scikit-learn=1.5
+  - joblib
+  - streamlit=1.39
+  - plotly=5.24

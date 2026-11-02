@@ -1,0 +1,17 @@
+# project-local environment & database
+.tools/
+.mamba/
+.env-btl/
+.pgdata/
+
+# raw data is large; download from Kaggle (see data/README.md)
+data/*.csv
+
+# lecturer's slides are not ours to publish
+lectures/
+
+# generated artifacts
+models/
+__pycache__/
+*.pyc
+.DS_Store
