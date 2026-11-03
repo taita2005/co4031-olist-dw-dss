@@ -11,3 +11,4 @@ dependencies:
   - joblib
   - streamlit=1.39
   - plotly=5.24
+  - pytest

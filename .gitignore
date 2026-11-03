@@ -13,5 +13,6 @@ lectures/
 # generated artifacts
 models/
 __pycache__/
+.pytest_cache/
 *.pyc
 .DS_Store

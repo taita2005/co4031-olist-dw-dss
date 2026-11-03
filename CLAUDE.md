@@ -25,17 +25,20 @@ Everything runs from a project-local micromamba env. Never install into the syst
 bash scripts/setup_env.sh        # one-time: micromamba + env (.env-btl/) from environment.yml
 source scripts/env.sh            # every new shell: PATH + PG* vars (port 5433, user btl, db olist_dw)
 bash scripts/db_start.sh         # initdb into .pgdata/ on first run, then start PostgreSQL
-python src/etl/run_etl.py        # full refresh: data/*.csv -> staging -> dw (+ meta.etl_log)
+python src/etl/run_etl.py        # full refresh: data/*.csv -> staging -> dw (+ meta.etl_log, meta.check_result); exit 1 if a check fails
 python src/dss/train_model.py    # writes models/decision_tree.joblib, rules.txt, metrics.json
 streamlit run src/app/Home.py    # dashboard
+python -m pytest tests -q        # unit + DB tests (DB tests skip if the DB is down)
 bash scripts/db_stop.sh
 ```
 
-There is no test suite. To check pages headlessly, use `streamlit.testing.v1.AppTest` with `src/app` on `sys.path`.
+To check pages headlessly, use `streamlit.testing.v1.AppTest` with `src/app` on `sys.path`.
+
+If the project folder is moved, the micromamba env breaks (PostgreSQL has its install path compiled in): `rm -rf .env-btl && bash scripts/setup_env.sh`. `.pgdata/` is unaffected.
 
 ## Code architecture
 
-- **SQL files run in order from `run_etl.py`.** `01` and `02` drop and recreate the `staging` and `dw` schemas. `meta.etl_log` lives outside `dw` so it survives refreshes. All cleansing and business rules are in `03_transform_load.sql`. `04` builds the materialized views.
+- **SQL files run in order from `run_etl.py`.** `01` and `02` drop and recreate the `staging` and `dw` schemas. `meta.etl_log` lives outside `dw` so it survives refreshes. All cleansing and business rules are in `03_transform_load.sql`. `04` builds the materialized views. `05_checks.sql` writes data quality checks to `meta.check_result`; its expected values are recomputed from staging, never by reusing the transform logic. Add a check there (and a breakage case in `tests/test_etl_checks.py`) whenever you add a business rule.
 - **Shared code:** `src/db.py` is used by the ETL, the DSS and the app. Entry scripts add `src/` to `sys.path`; the Streamlit pages do this through `src/app/common.py`, which they must import first.
 - **DSS risk model:** whatif.py does not use `predict_proba` (it is skewed by `class_weight="balanced"`). Probabilities come from `bundle["leaf_rate"]`, the training bad-review rate of each tree leaf. Scenarios pick which late orders to fix using the fixed `rand` column from `load_dataset()`, so results are deterministic and monotone.
 - **OLAP page:** it builds SQL only from the whitelisted `HIERARCHIES`, `FACTS` and `measures` dicts; user values are passed as bind parameters. Keep that pattern when adding dimensions or measures.

@@ -6,6 +6,10 @@ Steps
      + Load      mapping, business rules, insert into dimensions/facts).
   3. Aggregate : 04_olap_views.sql (materialized views for ROLAP).
   4. Metadata  : every step writes row counts to meta.etl_log.
+  5. Checks    : 05_checks.sql reconciles dw against staging and writes
+                 the results to meta.check_result. The run is still
+                 committed when a check fails (so it can be inspected),
+                 but the script exits with status 1.
 
 Usage:  python src/etl/run_etl.py [--data-dir data]
 """
@@ -84,6 +88,18 @@ def transform_and_load(cur) -> None:
     run_sql_file(cur, "04_olap_views.sql")
 
 
+def run_checks(cur, run_id) -> list[tuple]:
+    """Run 05_checks.sql for this run and return (category, name, expected, actual, passed)."""
+    cur.execute("SELECT set_config('etl.run_id', %s, false)", (run_id.isoformat(sep=" "),))
+    run_sql_file(cur, "05_checks.sql")
+    cur.execute(
+        "SELECT category, check_name, expected, actual, passed FROM meta.check_result "
+        "WHERE run_id = %s ORDER BY check_id",
+        (run_id,),
+    )
+    return cur.fetchall()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", default=PROJECT_ROOT / "data", type=Path)
@@ -94,13 +110,13 @@ def main() -> None:
     conn = get_engine().raw_connection()
     try:
         cur = conn.cursor()
-        print("[1/3] Extract -> staging")
+        print("[1/4] Extract -> staging")
         staging_stats = extract(cur, args.data_dir)
 
-        print("[2/3] Transform + Load -> dw")
+        print("[2/4] Transform + Load -> dw")
         transform_and_load(cur)
 
-        print("[3/3] Metadata -> meta.etl_log")
+        print("[3/4] Metadata -> meta.etl_log")
         for table, source_rows, loaded_rows in staging_stats:
             log(cur, run_id, "extract", table, source_rows, loaded_rows)
 
@@ -119,13 +135,24 @@ def main() -> None:
             log(cur, run_id, "load", f"dw.{table}", source, loaded, note)
             print(f"  dw.{table:<16} {loaded:>8,} rows" + (f"  (from {source:,} in {source_table})" if source else ""))
 
+        print("[4/4] Checks -> meta.check_result")
+        checks = run_checks(cur, run_id)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
-    print(f"ETL finished in {time.time() - started:.1f}s")
+
+    failed = [c for c in checks if not c[4]]
+    for category, name, expected, actual, passed in checks:
+        status = "ok  " if passed else "FAIL"
+        detail = "" if passed else f"  (expected {expected}, actual {actual})"
+        print(f"  {status} [{category}] {name}{detail}")
+    print(f"ETL finished in {time.time() - started:.1f}s; "
+          f"{len(checks) - len(failed)}/{len(checks)} checks passed")
+    if failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

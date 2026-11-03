@@ -52,7 +52,13 @@ python src/dss/train_model.py
 streamlit run src/app/Home.py
 ```
 
-Kết quả mong đợi ở bước 6: dòng cuối in `dw.fact_sales 112,650 rows` và `dw.fact_delivery 96,470 rows`.
+Kết quả mong đợi ở bước 6: `dw.fact_sales 112,650 rows`, `dw.fact_delivery 96,470 rows`, và dòng cuối `25/25 checks passed`. Nếu có kiểm tra không đạt, script in `FAIL` kèm giá trị kỳ vọng / thực tế và thoát với mã 1.
+
+Chạy test (cần DB đã bật và đã chạy ETL; nên chạy ETL 2 lần để có test "chạy lại cho cùng kết quả"):
+
+```bash
+python -m pytest tests -q
+```
 
 ### 1.2 Những lần sau
 
@@ -74,6 +80,8 @@ streamlit run src/app/Home.py
 | Tình huống | Cách làm |
 |---|---|
 | Xem dữ liệu bằng SQL | sau `source scripts/env.sh`, gõ `psql` (đã trỏ sẵn vào `olist_dw`) |
+| Xem kết quả kiểm tra dữ liệu | `psql -c "SELECT * FROM meta.check_result ORDER BY check_id DESC LIMIT 25"` |
+| `pg_ctl: could not start server`, log ghi `could not open directory .../.env-btl/lib` | thư mục project đã bị di chuyển; `rm -rf .env-btl` rồi chạy lại `bash scripts/setup_env.sh` (dữ liệu trong `.pgdata/` vẫn giữ nguyên) |
 | Sửa file SQL / ETL, muốn nạp lại | `python src/etl/run_etl.py` (full refresh, chạy lại bao nhiêu lần cũng được) rồi `python src/dss/train_model.py` |
 | `command not found: python` / `psql` | quên `source scripts/env.sh` trong terminal này |
 | `Missing source file: .../data/...csv` | chưa đặt CSV vào `data/` (xem `data/README.md`) |
@@ -103,7 +111,7 @@ Ba schema trong cùng database `olist_dw`:
 |---|---|---|
 | `staging` | Data staging area: bản sao y nguyên CSV | Xoá & tạo lại mỗi lần ETL |
 | `dw` | Dimensional data store: dimension + fact + materialized view | Xoá & tạo lại mỗi lần ETL (full refresh) |
-| `meta` | `etl_log`: lịch sử các lần chạy ETL ("history of extracts") | **Giữ lại** qua các lần chạy |
+| `meta` | `etl_log`: lịch sử các lần chạy ETL ("history of extracts"); `check_result`: kết quả kiểm tra chất lượng dữ liệu của từng lần chạy | **Giữ lại** qua các lần chạy |
 
 ---
 
@@ -127,7 +135,8 @@ src/
     02_dw_schema.sql   tạo dimension, fact, index, partition, meta.etl_log
     03_transform_load.sql   toàn bộ logic Transform + Load (đọc file này kỹ nhất)
     04_olap_views.sql  3 materialized view tổng hợp sẵn
-  etl/run_etl.py       điều phối: chạy 4 file SQL theo thứ tự + COPY CSV + ghi etl_log
+    05_checks.sql      25 kiểm tra chất lượng dữ liệu (grain, đối chiếu staging-dw, miền giá trị, MV) -> meta.check_result
+  etl/run_etl.py       điều phối: chạy 5 file SQL theo thứ tự + COPY CSV + ghi etl_log + in kết quả kiểm tra
   dss/
     train_model.py     đọc fact_delivery -> train cây quyết định -> lưu models/
     whatif.py          what-if, sensitivity, goal seeking, xếp hạng ưu tiên
@@ -138,6 +147,11 @@ src/
     pages/2_Delivery.py   phân tích giao hàng & review
     pages/3_DSS.py     giao diện DSS
 
+tests/
+  conftest.py          fixture dùng chung (tự skip test cần DB nếu DB chưa bật)
+  test_whatif_unit.py  unit test simulate() trên dữ liệu tự tạo (không cần DB)
+  test_etl_checks.py   lần ETL mới nhất đạt mọi kiểm tra; cố tình làm hỏng DW (rollback) để chắc kiểm tra bắt được lỗi; chạy lại cho cùng kết quả
+  test_dss_model.py    what-if giảm đơn điệu, goal seeking trả mức nhỏ nhất, xếp hạng đúng thứ tự
 models/                (sinh ra, không có trên GitHub) decision_tree.joblib, rules.txt, metrics.json
 data/README.md         link tải dữ liệu Olist + danh sách CSV cần đặt vào data/ (CSV không có trên GitHub)
 docs/
@@ -225,7 +239,8 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 - [ ] Grain của 2 fact có hợp lý? Có join nào gây nhân dòng không (đặc biệt `order_reviews`, `order_items`)?
 - [ ] Các business rule (định nghĩa trễ, review xấu, khách hàng thật) có đúng ý nhóm?
 - [ ] `run_etl.py` chạy lại nhiều lần có ra cùng kết quả? `meta.etl_log` có tăng thêm 1 lượt mỗi lần?
-- [ ] Đối chiếu: `SELECT SUM(price::numeric) FROM staging.order_items` = `SELECT SUM(price) FROM dw.fact_sales` (đều 13,591,643.70).
+- [ ] Đối chiếu: `SELECT SUM(price::numeric) FROM staging.order_items` = `SELECT SUM(price) FROM dw.fact_sales` (đều 13,591,643.70). Đã tự động hoá trong `05_checks.sql`; đọc lại xem còn thiếu kiểm tra nào không.
+- [ ] `python -m pytest tests -q` chạy xanh.
 - [ ] Trang OLAP: thử drill-down Năm → Quý → Tháng, pivot, dice theo bang; mở expander SQL để đối chiếu.
 - [ ] `whatif.simulate`: thao tác trên đơn trễ có đúng (`delivery_days = estimated_days`, `delay_days = 0`)?
 - [ ] Kéo slider what-if: tỷ lệ review xấu phải giảm khi tăng mức giảm trễ.
