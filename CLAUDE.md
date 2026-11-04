@@ -14,7 +14,7 @@ In short:
 - **Stack:** Python + PostgreSQL + Streamlit, with scikit-learn for the DSS model, all in a project-local micromamba env (no Docker).
 - **Architecture:** a three-tier DW. CSVs are loaded into a `staging` schema, then into a `dw` schema that has a fact constellation (`fact_sales` at order-item grain, `fact_delivery` at delivered-order grain) sharing `dim_date`, `dim_customer`, `dim_seller` and `dim_product`.
 - **Frontend:** a Streamlit OLAP dashboard.
-- **DSS:** a decision tree (entropy) that predicts bad reviews (score ≤ 2), plus what-if, sensitivity and goal-seeking analysis on late-delivery rate.
+- **DSS:** a decision tree (entropy) that predicts bad reviews (score ≤ 2), plus what-if, sensitivity and goal-seeking analysis on late-delivery rate, and a budget optimiser. Decision question: with a limited budget, which states to prioritise to avoid the most bad reviews, and does that priority hold when cost assumptions change (`robustness()` is the main answer; see `docs/plan.md` §1).
 - **Terminology:** follow the lecture slides (Inmon characteristics, three-tier, ROLAP, the 5 OLAP operations, the Simon decision phases, DSS subsystems), because the team must present it to the lecturer.
 
 ## Commands
@@ -26,7 +26,7 @@ bash scripts/setup_env.sh        # one-time: micromamba + env (.env-btl/) from e
 source scripts/env.sh            # every new shell: PATH + PG* vars (port 5433, user btl, db olist_dw)
 bash scripts/db_start.sh         # initdb into .pgdata/ on first run, then start PostgreSQL
 python src/etl/run_etl.py        # full refresh: data/*.csv -> staging -> dw (+ meta.etl_log, meta.check_result); exit 1 if a check fails
-python src/dss/train_model.py    # writes models/decision_tree.joblib, rules.txt, metrics.json
+python src/dss/train_model.py    # writes models/decision_tree.joblib, rules.txt, metrics.json, options.csv, experiments.json (~25 s)
 streamlit run src/app/Home.py    # dashboard
 python -m pytest tests -q        # unit + DB tests (DB tests skip if the DB is down)
 bash scripts/db_stop.sh
@@ -41,7 +41,8 @@ If the project folder is moved, the micromamba env breaks (PostgreSQL has its in
 - **SQL files run in order from `run_etl.py`.** `01` and `02` drop and recreate the `staging` and `dw` schemas. `meta.etl_log` lives outside `dw` so it survives refreshes. All cleansing and business rules are in `03_transform_load.sql`. `04` builds the materialized views. `05_checks.sql` writes data quality checks to `meta.check_result`; its expected values are recomputed from staging, never by reusing the transform logic. Add a check there (and a breakage case in `tests/test_etl_checks.py`) whenever you add a business rule.
 - **Shared code:** `src/db.py` is used by the ETL, the DSS and the app. Entry scripts add `src/` to `sys.path`; the Streamlit pages do this through `src/app/common.py`, which they must import first.
 - **DSS risk model:** whatif.py does not use `predict_proba` (it is skewed by `class_weight="balanced"`). Probabilities come from `bundle["leaf_rate"]`, the training bad-review rate of each tree leaf. Scenarios pick which late orders to fix using the fixed `rand` column from `load_dataset()`, so results are deterministic and monotone.
-- **Budget optimiser (`src/dss/optimizer.py`):** `train_model.py` pre-computes `models/options.csv` (benefit per state x level from `evaluate_scenario`); cost (BRL) = `freight_fixed` (real freight of the late orders fixed, from the DW) x `surcharge` x `tier[level]`; only those two parameters (`config/cost_assumptions.csv`) are assumptions. `surcharge` only rescales the budget (tested); `tier` shapes the plan (`tier_sensitivity()`). `solve()` is an exact MILP (scipy `milp`/HiGHS); HiGHS prints debug lines to fd 1, silenced by `_quiet_native_output()`. `greedy()` is an incremental (upgrade) greedy baseline; keep it a fair baseline.
+- **Budget optimiser (`src/dss/optimizer.py`):** `train_model.py` pre-computes `models/options.csv` (benefit per state x level from `evaluate_scenario`); cost (BRL) = `freight_fixed` (real freight of the late orders fixed, from the DW) x `surcharge` x `tier[level]`; only those two parameters (`config/cost_assumptions.csv`) are assumptions. `surcharge` only rescales the budget (tested); `tier` shapes the plan (`tier_sensitivity()`). `solve()` is an exact MILP (scipy `milp`/HiGHS); HiGHS prints debug lines to fd 1, silenced by `_quiet_native_output()`. `greedy()` is an incremental (upgrade) greedy baseline; keep it a fair baseline. `robustness()` re-solves under 2 cost models (`COST_MODELS`: real freight / uniform) x 3 tiers x `ROBUST_BUDGETS` and ranks states by the first budget where they are chosen under >= 2/3 of the assumption sets.
+- **Model selection:** `TREE_PARAMS` (4 / 200) vs `PARAM_GRID` is evaluated by `tree_experiments()` (5-fold CV on the training set only) into `models/experiments.json`; `leaf_check()` stores train-vs-test leaf rates in `metrics.json`.
 - **OLAP page:** it builds SQL only from the whitelisted `HIERARCHIES`, `FACTS` and `measures` dicts; user values are passed as bind parameters. Keep that pattern when adding dimensions or measures.
 - **Language:** the UI and README are in Vietnamese; code comments are in English.
 

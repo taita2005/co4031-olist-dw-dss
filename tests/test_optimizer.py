@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from dss.optimizer import (LEVELS, TIER_SCENARIOS, attach_costs, frontier, greedy, load_cost_assumptions,
-                           load_options, recommend, solve, tier_sensitivity)
+from dss.optimizer import (COST_MODELS, LEVELS, TIER_SCENARIOS, attach_costs, attach_uniform_costs, frontier, greedy,
+                           load_cost_assumptions, load_options, recommend, robustness, solve, tier_sensitivity)
 
 TIER = TIER_SCENARIOS["default"]
 
@@ -160,6 +160,48 @@ def test_shipped_cost_assumptions():
     assert surcharge > 0
     assert set(tier) == set(LEVELS)
     assert [tier[l] for l in sorted(tier)] == sorted(tier.values())  # marginal cost never falls
+
+
+def test_uniform_costs_ignore_freight_but_keep_the_total():
+    options = make_options([("A", 0.5, 0, 0), ("A", 1.0, 0, 0), ("B", 0.5, 0, 0), ("B", 1.0, 0, 0)])
+    options["late_fixed"] = [1, 2, 3, 6]
+    options["freight_fixed"] = [10.0, 20.0, 90.0, 180.0]    # B is 3x as expensive per order
+    out = attach_uniform_costs(options, 1.0, {0.5: 1.0, 1.0: 1.0})
+    per_order = (20 + 180) / (2 + 6)
+    assert out["cost"].tolist() == pytest.approx([1 * per_order, 2 * per_order, 3 * per_order, 6 * per_order])
+    full = out[out["level"] == 1.0]
+    assert full["cost"].sum() == pytest.approx(200.0)       # same national total as the freight model
+
+
+def test_tier_sensitivity_uses_the_given_cost_model():
+    options = random_options(3)
+    a = tier_sensitivity(options, 30, 1.0, attach=attach_costs)
+    b = tier_sensitivity(options, 30, 1.0, attach=attach_uniform_costs)
+    for name, tier in TIER_SCENARIOS.items():
+        expected = solve(attach_uniform_costs(options, 1.0, tier), 30).benefit
+        assert b.set_index("scenario").at[name, "benefit"] == pytest.approx(expected)
+    assert len(a) == len(b) == len(TIER_SCENARIOS)
+
+
+def test_robustness_counts_every_scenario_and_ranks_priorities():
+    options = random_options(5, n_states=6)
+    budgets = (20, 60)
+    runs, summary = robustness(options, 1.0, budgets=budgets)
+    n_sets = len(COST_MODELS) * len(TIER_SCENARIOS)
+    assert runs["scenario"].nunique() <= n_sets * len(budgets)
+    assert set(summary["state"]) == set(options["state"])
+    # every chosen state in runs is the solver's own choice for that scenario
+    for (cost, tier, budget), g in runs.groupby(["cost_model", "tier", "budget"]):
+        plan = solve(COST_MODELS[cost](options, 1.0, TIER_SCENARIOS[tier]), budget)
+        assert set(g["state"]) == set(plan.selected["state"])
+    # per-budget counts add up to the total, and the priority is the first budget with a majority
+    per_budget = summary[[f"n_at_{b}" for b in budgets]]
+    assert (per_budget.sum(axis=1) == summary["n_chosen"]).all()
+    for row in summary.itertuples():
+        counts = [getattr(row, f"n_at_{b}") for b in budgets]
+        first = next((i + 1 for i, c in enumerate(counts) if c >= 2 / 3 * n_sets), None)
+        assert (np.isnan(row.priority) and first is None) or row.priority == first
+    assert summary["priority"].dropna().is_monotonic_increasing
 
 
 # ---------------------------------------------------------------------

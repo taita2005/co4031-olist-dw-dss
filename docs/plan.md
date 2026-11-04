@@ -28,7 +28,9 @@ Tài liệu này thay cho mục "Còn lại" trong `docs/handoff.md`. Phần "C�
 
 ## 1. Bài toán quyết định (duy nhất)
 
-> **Với ngân sách cải thiện giao hàng có hạn, nên đầu tư vào những bang nào, và giảm bao nhiêu % đơn giao trễ ở mỗi bang, để giảm được nhiều review 1–2 sao nhất?**
+> **Nếu Olist đầu tư cải thiện giao hàng với ngân sách có hạn, nên ưu tiên những bang nào để giảm review 1–2 sao nhiều nhất, và thứ tự ưu tiên đó có còn đúng khi giả định về chi phí thay đổi không?**
+
+Đổi ngày 04/11 từ câu cũ ("…giảm bao nhiêu % đơn trễ ở mỗi bang…"). Lý do: mức % cụ thể ở mỗi bang thay đổi theo giả định chi phí, còn thứ tự ưu tiên các bang thì vững qua 18 kịch bản giả định. Câu trả lời chính vì vậy là **danh sách bang ưu tiên kèm độ vững**; phương án % chi tiết chỉ là ví dụ dưới một bộ giả định. Phạm vi: giao trễ chỉ liên quan khoảng 1/3 số review xấu (3.983 / 12.272).
 
 | Thành phần | Nội dung |
 |---|---|
@@ -44,8 +46,8 @@ Mọi thành phần của hệ thống phục vụ câu hỏi này, theo 4 pha c
 |---|---|---|
 | Intelligence | DW + OLAP + trang Delivery: trễ có liên quan review xấu không, ở đâu | Đã có |
 | Design | Cây quyết định (entropy), what-if, sensitivity, goal seeking | Đã có |
-| Choice | **Tối ưu ngân sách (0-1 integer programming) so với greedy**, kèm xếp hạng ưu tiên | **Cần làm** |
-| Implementation | Bảng khuyến nghị bằng câu chữ cho nhà quản lý | **Cần làm** |
+| Choice | Tối ưu ngân sách (0-1 integer programming) so với greedy, phân tích độ vững qua 18 kịch bản | Xong (Phase 2–3) |
+| Implementation | Danh sách bang ưu tiên + khuyến nghị bằng câu chữ trên tab 5 | Xong (Phase 3) |
 
 Những phần **không** đưa vào bài toán:
 - danh mục chỉ dùng để phân tích, không là biến quyết định;
@@ -144,7 +146,17 @@ s.t. Σ_r x[s,r] ≤ 1                       với mọi s   (mỗi bang chọn 
 - test ở Phase 1 chạy xanh;
 - kết quả tối ưu ≥ greedy ở mọi mức ngân sách.
 
-### Phase 3 — Giao diện DSS và khuyến nghị (05–07/11, TV1 code; TV3 kiểm tra kết quả)
+### Phase 3 — Giao diện DSS và khuyến nghị (05–07/11, TV1 code; TV3 kiểm tra kết quả) — ✅ xong 04/11 (nhánh `feat/budget-optimizer`)
+
+Kết quả (khác kế hoạch ban đầu ở dưới ở mấy điểm):
+- Tab 5 "Tối ưu ngân sách" mở đầu bằng **kết luận không phụ thuộc giả định** (`optimizer.robustness()`: 2 cách tính chi phí × 3 kịch bản hệ số × 3 mức ngân sách 10k/20k/40k BRL). Ưu tiên 1: RJ, GO, PR, RN; ưu tiên 2: RS, ES, SP, SE, PA, SC, AL, TO, MT, DF, MG; ưu tiên 3: BA, PI, MS, PE, CE; ít khi chọn: RO, PB, MA, AM. Sau đó mới tới phương án chi tiết (chọn ngân sách, K, hệ số, cách tính chi phí), so sánh với greedy, đường cong ngân sách – lợi ích, bảng độ nhạy, nút tải CSV.
+- Thực nghiệm tham số cây làm bằng **cross-validation 5-fold trên tập train** (không dùng tập test), đo cả chỉ số phân loại và chất lượng xác suất (Brier, log-loss, AUC), lưu `models/experiments.json`, hiện ở tab 1. Depth 3 có F1 cao nhất nhưng AUC thấp nhất; 4/200 giữ nguyên vì xác suất gần bằng depth 5–6 mà chỉ 15 lá.
+- Kiểm tra tỷ lệ của lá trên tập test (`metrics.json` → `leaf_check`, biểu đồ ở tab 1): dự kiến 2.498 / thực tế 2.454 review xấu.
+- Tab 2 ghi rõ xếp hạng theo tổng (SP đứng đầu) khác với ưu tiên theo hiệu quả trên mỗi BRL ở tab 5.
+- Mục 3 của thực nghiệm (`unit_cost` vùng North ±50%) bỏ vì không còn `unit_cost`; thay bằng cách tính chi phí đồng đều trong `robustness()`.
+- 68 test đạt.
+
+Kế hoạch ban đầu (giữ để đối chiếu):
 
 Sắp lại `src/app/pages/3_DSS.py` theo luồng của bài toán:
 

@@ -2,7 +2,9 @@
 
 Kho dữ liệu (Data Warehouse) phân tích **bán hàng – giao hàng** và hệ hỗ trợ quyết định (DSS) giúp quản lý vận hành sàn TMĐT Olist trả lời:
 
-> *Nên ưu tiên cải thiện giao hàng ở bang / danh mục nào, và cải thiện bao nhiêu, để giảm tỷ lệ đánh giá 1–2 sao?*
+> *Nếu Olist đầu tư cải thiện giao hàng với ngân sách có hạn, nên ưu tiên những bang nào để giảm review 1–2 sao nhiều nhất, và thứ tự ưu tiên đó có còn đúng khi giả định về chi phí thay đổi không?*
+
+Phạm vi: giao trễ chỉ liên quan khoảng 1/3 số review xấu (3.983 / 12.272); DSS xử lý phần đó.
 
 **Repo:** https://github.com/taita2005/co4031-olist-dw-dss
 
@@ -211,7 +213,7 @@ docs/
 
 Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dưới đây).
 
-**Mô hình:** cây quyết định `DecisionTreeClassifier(criterion="entropy", max_depth=4, min_samples_leaf=200, class_weight="balanced")` — tiêu chí information gain như ID3/C4.5 trong lecture Ch.5.
+**Mô hình:** cây quyết định `DecisionTreeClassifier(criterion="entropy", max_depth=4, min_samples_leaf=200, class_weight="balanced")` — tiêu chí entropy / information gain (lecture Ch.5). scikit-learn cài đặt theo CART (tách nhị phân), không phải ID3/C4.5 nguyên bản. Tham số 4 / 200 được chọn bằng thực nghiệm (`tree_experiments()`, cross-validation 5-fold trên tập train, lưu ở `models/experiments.json`).
 - Input: `is_late, delay_days, delivery_days, estimated_days, n_items, n_sellers, freight_ratio, same_state, region_*`
 - Target: `is_bad_review`
 - Chia train/test 80/20 (stratified, `random_state=42`).
@@ -225,6 +227,7 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 | Goal seeking | `goal_seek()` | Duyệt `late_reduction` từng 1% (complete enumeration), trả về mức nhỏ nhất đạt mục tiêu; `None` nếu không đạt. |
 | Xếp hạng (Choice) | `priority_ranking()` | Với mỗi bang/danh mục: giả sử hết trễ → tổng số review xấu tránh được; sắp giảm dần. |
 | Tối ưu ngân sách (Choice) | `optimizer.solve()` | Mỗi bang chọn 1 mức giảm đơn trễ (25/50/75/100%) hoặc không làm, để tối đa review xấu tránh được với tổng chi phí ≤ ngân sách và ≤ K bang (0-1 integer programming). Lợi ích lấy từ mô hình (tính sẵn trong `models/options.csv`). Chi phí (BRL) = phí ship **thực tế** của các đơn trễ được sửa × phụ phí × hệ số theo mức; chỉ 2 tham số cuối là **giả định** (`config/`). So sánh với `greedy()`; `tier_sensitivity()` kiểm tra độ nhạy theo hệ số; `recommend()` sinh khuyến nghị bằng lời. |
+| Độ vững (kết luận chính) | `optimizer.robustness()` | Giải lại bài toán với 2 cách tính chi phí (phí ship thật / đồng đều) × 3 kịch bản hệ số × 3 mức ngân sách (10k / 20k / 40k BRL). Bang được chọn ở mức ngân sách nhỏ nhất trong ≥ 4/6 bộ giả định là ưu tiên cao nhất. |
 
 ### Kết quả hiện tại (dữ liệu đầy đủ)
 - Accuracy 79.7%, precision (review xấu) 32.9%, recall 56.8%, F1 0.417.
@@ -232,7 +235,11 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 - Đơn nhiều sản phẩm từ nhiều người bán cũng rủi ro cao (~45–54%) dù không trễ → gợi ý nguyên nhân giao tách nhiều lần.
 - Gain(is_late) = 0.0728 bit.
 - Giảm 50% đơn trễ toàn quốc: review xấu kỳ vọng 12.9% → 11.2%. Muốn ≤ 11% cần giảm 58% đơn trễ.
-- Ưu tiên theo số review xấu tránh được: SP (~805), RJ (~769, nhưng tỷ lệ trễ RJ 11.9% gấp ~2.7 lần SP).
+- Ưu tiên theo **tổng** số review xấu tránh được (chưa tính chi phí): SP (~805), RJ (~769, nhưng tỷ lệ trễ RJ 11.9% gấp ~2.7 lần SP).
+- **Kết luận vững qua 18 kịch bản giả định** (tab 5): ưu tiên 1 = RJ, GO, PR, RN (đã được chọn từ 10.000 BRL); ưu tiên 2 = RS, ES, SP, SE, PA, SC, AL, TO, MT, DF, MG; ưu tiên 3 = BA, PI, MS, PE, CE; ít khi được chọn: RO, PB, MA, AM. Mức giảm % cụ thể ở mỗi bang phụ thuộc giả định chi phí.
+- Ví dụ với giả định mặc định, 40.000 BRL: tránh ~1.411 review xấu (12,85% → 11,38%); greedy 1.405.
+- Chọn tham số cây (CV 5-fold): depth 3 có F1 cao nhất (0,445) nhưng xác suất kém nhất (AUC 0,731); depth 4 có AUC 0,741, Brier 0,0874, gần bằng depth 6 (0,746 / 0,0872) với 15 lá thay vì 39.
+- Kiểm tra mô hình rủi ro trên tập test: dự kiến 2.498 review xấu, thực tế 2.454; tỷ lệ của lá lệch trung bình 0,6 điểm %.
 
 ---
 
