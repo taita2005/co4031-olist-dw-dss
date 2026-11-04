@@ -10,10 +10,12 @@ The tree is used in two ways:
     analysis (see whatif.py).
 
 Usage:  python src/dss/train_model.py
-Outputs: models/decision_tree.joblib, models/rules.txt, models/metrics.json
+Outputs: models/decision_tree.joblib, models/rules.txt, models/metrics.json,
+         models/options.csv (per state x level benefits for the budget optimiser)
 """
 import json
 import sys
+import time
 from pathlib import Path
 
 import joblib
@@ -160,8 +162,23 @@ def train(engine=None, verbose: bool = True) -> dict:
     rules_text = format_rules(rules) + "\n\n" + export_text(tree, feature_names=FEATURES)
 
     bundle = {"tree": tree, "features": FEATURES, "leaf_rate": leaf_rate, "metrics": metrics, "rules": rules}
+
+    # Pre-compute the optimiser's benefit table (imported here: optimizer -> whatif -> this module)
+    from dss.optimizer import OPTIONS_PATH, build_options
+    from dss.whatif import predict_bad_prob
+    started = time.perf_counter()
+    options = build_options(bundle, df)
+    metrics["optimizer_baseline"] = {
+        "n_reviews": len(df),
+        "expected_bad_before": float(predict_bad_prob(bundle, df).sum()),
+        "n_options": len(options),
+        "n_states": int(options["state"].nunique()),
+        "build_seconds": round(time.perf_counter() - started, 2),
+    }
+
     MODEL_DIR.mkdir(exist_ok=True)
     joblib.dump(bundle, MODEL_PATH)
+    options.to_csv(OPTIONS_PATH, index=False)
     (MODEL_DIR / "rules.txt").write_text(rules_text, encoding="utf-8")
     (MODEL_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 

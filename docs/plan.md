@@ -100,7 +100,13 @@ Mục tiêu: không bao giờ gặp lỗi kiểu C (doanh thu sai, nhân dòng) 
 | Thêm `pytest` vào `environment.yml`; tạo `tests/test_dss.py` để kiểm tra: what-if giảm đơn điệu theo `late_reduction`; `goal_seek` trả `None` khi mục tiêu không đạt được; optimizer không vượt ngân sách và luôn ≥ greedy | `tests/` | `pytest` chạy xanh |
 | Chạy ETL 2 lần, so số dòng và tổng tiền, chứng minh chạy lại cho cùng kết quả | ghi vào `report.md` §7 | Có bảng kết quả |
 
-### Phase 2 — Bộ tối ưu ngân sách (04–06/11, TV1; TV3 review và viết test)
+### Phase 2 — Bộ tối ưu ngân sách (04–06/11, TV1; TV3 review và viết test) — ✅ xong 03/11
+
+Kết quả: `src/dss/optimizer.py`, `config/cost_assumptions.csv` (+ README giải thích giả định), `models/options.csv` (24 bang × 4 mức, tính trong khoảng 2,4 giây khi train), `tests/test_optimizer.py` (MILP khớp vét cạn; tổng 63 test đạt). Solver giải trong khoảng 0,02 giây.
+
+**Chi phí (đã đổi so với Bước 2 ở dưới):** không còn bảng chi phí tự đặt theo vùng. Chi phí (BRL) = phí ship **thực tế** của các đơn trễ được sửa × `surcharge` (0,5) × `tier[mức]` (1 / 1,2 / 1,5 / 2). Chênh lệch giữa các bang lấy từ dữ liệu; chỉ 2 tham số là giả định. `surcharge` chỉ đổi thước đo ngân sách, không đổi phương án (đã có test). `tier` có ảnh hưởng: ở ngân sách 40.000 BRL, hệ số phẳng → sửa sâu ở 8 bang (RJ, SP 100%), mặc định → 19 bang, dốc → 20 bang mức nhẹ. Đây là nội dung cho phần phân tích độ nhạy.
+
+Điều chỉnh so với dự kiến: greedy ban đầu (mỗi bang chọn 1 lần) là baseline quá yếu, nên đã đổi sang **greedy nâng cấp dần** (chọn bước nâng mức có lợi ích cận biên / chi phí cận biên cao nhất). Trên dữ liệu thật greedy này gần tối ưu khi không giới hạn số bang (chênh ≤ 1,1%), nhưng chênh 2,7–7,4% khi giới hạn K = 5 bang. Báo cáo cần nêu trung thực điều này.
 
 File mới `src/dss/optimizer.py`.
 

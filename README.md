@@ -140,6 +140,7 @@ src/
   dss/
     train_model.py     đọc fact_delivery -> train cây quyết định -> lưu models/
     whatif.py          what-if, sensitivity, goal seeking, xếp hạng ưu tiên
+    optimizer.py       tối ưu ngân sách: bảng lợi ích bang x mức, 0-1 integer programming (scipy milp), greedy, khuyến nghị
   app/
     common.py          cache kết nối/truy vấn cho Streamlit
     Home.py            trang chủ: KPI + xu hướng theo tháng + metadata ETL
@@ -152,7 +153,10 @@ tests/
   test_whatif_unit.py  unit test simulate() trên dữ liệu tự tạo (không cần DB)
   test_etl_checks.py   lần ETL mới nhất đạt mọi kiểm tra; cố tình làm hỏng DW (rollback) để chắc kiểm tra bắt được lỗi; chạy lại cho cùng kết quả
   test_dss_model.py    what-if giảm đơn điệu, goal seeking trả mức nhỏ nhất, xếp hạng đúng thứ tự
-models/                (sinh ra, không có trên GitHub) decision_tree.joblib, rules.txt, metrics.json
+  test_optimizer.py    MILP khớp với vét cạn trên bài toán nhỏ ngẫu nhiên; greedy khả thi và không vượt tối ưu; options.csv khớp mô hình
+config/
+  cost_assumptions.csv 2 tham số GIẢ ĐỊNH của chi phí: phụ phí (% phí ship) và hệ số theo mức (xem config/README.md)
+models/                (sinh ra, không có trên GitHub) decision_tree.joblib, rules.txt, metrics.json, options.csv
 data/README.md         link tải dữ liệu Olist + danh sách CSV cần đặt vào data/ (CSV không có trên GitHub)
 docs/
   proposal.md          đề xuất đã duyệt (+ bảng thay đổi so với bản đầu)
@@ -220,6 +224,7 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 | Sensitivity | `sensitivity()` | Quét `late_reduction` 0% → 100%, vẽ đường tỷ lệ review xấu. |
 | Goal seeking | `goal_seek()` | Duyệt `late_reduction` từng 1% (complete enumeration), trả về mức nhỏ nhất đạt mục tiêu; `None` nếu không đạt. |
 | Xếp hạng (Choice) | `priority_ranking()` | Với mỗi bang/danh mục: giả sử hết trễ → tổng số review xấu tránh được; sắp giảm dần. |
+| Tối ưu ngân sách (Choice) | `optimizer.solve()` | Mỗi bang chọn 1 mức giảm đơn trễ (25/50/75/100%) hoặc không làm, để tối đa review xấu tránh được với tổng chi phí ≤ ngân sách và ≤ K bang (0-1 integer programming). Lợi ích lấy từ mô hình (tính sẵn trong `models/options.csv`). Chi phí (BRL) = phí ship **thực tế** của các đơn trễ được sửa × phụ phí × hệ số theo mức; chỉ 2 tham số cuối là **giả định** (`config/`). So sánh với `greedy()`; `tier_sensitivity()` kiểm tra độ nhạy theo hệ số; `recommend()` sinh khuyến nghị bằng lời. |
 
 ### Kết quả hiện tại (dữ liệu đầy đủ)
 - Accuracy 79.7%, precision (review xấu) 32.9%, recall 56.8%, F1 0.417.
