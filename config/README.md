@@ -40,6 +40,10 @@ Muốn thử giả định khác thì sửa file này hoặc chỉnh trên trang
 
 Câu SQL dùng để kiểm tra: nhóm theo `dim_seller.state || '->' || dim_customer.state` và nhóm cân nặng của `dim_product.weight_g` (mốc 500 / 1.000 / 2.000 / 5.000 / 10.000 g), `ntile(4)` theo `freight_total` trong mỗi nhóm, chỉ giữ nhóm có ≥ 40 đơn, `n_items = 1`.
 
+## Kết luận nào không phụ thuộc các giả định này?
+
+`optimizer.robustness()` giải lại bài toán với **2 cách tính chi phí** (phí ship thật của bang; hoặc đồng đều: mọi đơn trễ cùng giá = phí ship trung bình toàn quốc của một đơn trễ, tức là bỏ hẳn giả định phí ship) × **3 kịch bản hệ số theo mức** × **3 mức ngân sách** (10.000 / 20.000 / 40.000 BRL). Bang được chọn ngay ở mức ngân sách nhỏ trong ít nhất 4/6 bộ giả định là ưu tiên cao nhất. Kết quả hiện ở tab 5 trang DSS: ưu tiên 1 là RJ, GO, PR, RN. Mức giảm % cụ thể ở mỗi bang thì phụ thuộc giả định, nên chỉ báo cáo dưới dạng khoảng.
+
 ## Các giả định khác của DSS (cần liệt kê trong báo cáo)
 
 1. Giao trễ là **nguyên nhân** gây review xấu (thực tế còn chất lượng sản phẩm, đóng gói…).

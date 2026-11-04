@@ -117,6 +117,22 @@ def attach_costs(options: pd.DataFrame, surcharge: float, tier: dict) -> pd.Data
     return out
 
 
+def attach_uniform_costs(options: pd.DataFrame, surcharge: float, tier: dict) -> pd.DataFrame:
+    """Alternative cost model that ignores freight: every late order costs the same.
+
+    The price per order is the national average freight of a late order, so
+    total costs stay comparable with attach_costs() and the same budgets apply.
+    Used only to check whether conclusions depend on the freight assumption.
+    """
+    full = options[options["level"] == options["level"].max()]
+    per_order = full["freight_fixed"].sum() / full["late_fixed"].sum()
+    uniform = options.assign(freight_fixed=options["late_fixed"] * per_order)
+    return attach_costs(uniform, surcharge, tier)
+
+
+COST_MODELS = {"freight": attach_costs, "uniform": attach_uniform_costs}
+
+
 # ---------------------------------------------------------------------
 # Solvers
 # ---------------------------------------------------------------------
@@ -254,11 +270,12 @@ def frontier(options: pd.DataFrame, budgets, max_states: int | None = None) -> p
 
 
 def tier_sensitivity(options: pd.DataFrame, budget: float, surcharge: float,
-                     scenarios: dict = TIER_SCENARIOS, max_states: int | None = None) -> pd.DataFrame:
+                     scenarios: dict = TIER_SCENARIOS, max_states: int | None = None,
+                     attach=attach_costs) -> pd.DataFrame:
     """Does the optimal plan change when the tier assumption changes? One row per scenario."""
     rows = []
     for name, tier in scenarios.items():
-        plan = solve(attach_costs(options, surcharge, tier), budget, max_states)
+        plan = solve(attach(options, surcharge, tier), budget, max_states)
         rows.append({
             "scenario": name,
             "tier": " / ".join(f"{tier[l]:g}" for l in LEVELS),
@@ -269,6 +286,58 @@ def tier_sensitivity(options: pd.DataFrame, budget: float, surcharge: float,
             "plan": ", ".join(f"{r.state} {r.level:.0%}" for r in plan.selected.sort_values("state").itertuples()),
         })
     return pd.DataFrame(rows)
+
+
+ROBUST_BUDGETS = (10_000, 20_000, 40_000)
+
+
+def robustness(options: pd.DataFrame, surcharge: float, budgets=ROBUST_BUDGETS,
+               tiers: dict = TIER_SCENARIOS, cost_models: dict = COST_MODELS,
+               max_states: int | None = None, majority: float = 2 / 3) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Which conclusions survive when the uncertain assumptions change?
+
+    Solves the optimal plan for every combination of cost model x tier
+    scenario (the "assumption sets", 2 x 3 = 6 by default) at every budget.
+    Returns
+      runs    : one row per (assumption set, budget) and chosen state
+      summary : one row per state. `priority` = rank of the smallest budget at
+                which the state is chosen under at least `majority` of the
+                assumption sets (1 = already at the smallest budget; NaN = never).
+                The exact level per state depends on the assumptions and is
+                reported as a range (min_level..max_level).
+    """
+    runs = []
+    scenario_id = 0
+    for cost_name, attach in cost_models.items():
+        for tier_name, tier in tiers.items():
+            costed = attach(options, surcharge, tier)
+            for budget in budgets:
+                plan = solve(costed, budget, max_states)
+                for r in plan.selected.itertuples():
+                    runs.append({"scenario": scenario_id, "cost_model": cost_name, "tier": tier_name,
+                                 "budget": budget, "state": r.state, "level": r.level, "benefit": r.benefit})
+                scenario_id += 1
+    runs = pd.DataFrame(runs, columns=["scenario", "cost_model", "tier", "budget", "state", "level", "benefit"])
+
+    regions = options.drop_duplicates("state").set_index("state")["region"]
+    stats = runs.groupby("state")["level"].agg(n_chosen="size", mean_level="mean",
+                                               min_level="min", max_level="max")
+    # chosen at a small budget = first priority; at a large budget almost every state is chosen
+    per_budget = (runs.pivot_table(index="state", columns="budget", values="scenario", aggfunc="size")
+                  .reindex(columns=list(budgets)).add_prefix("n_at_"))
+    summary = (pd.DataFrame(index=regions.index).join(stats).join(per_budget)
+               .fillna(0).astype({c: int for c in ["n_chosen", *per_budget.columns]}))
+    summary[["mean_level", "min_level", "max_level"]] = summary[["mean_level", "min_level", "max_level"]].replace(0, np.nan)
+    summary.insert(0, "region", regions)
+    summary["share"] = summary["n_chosen"] / scenario_id
+    n_sets = len(cost_models) * len(tiers)
+    reached = summary[per_budget.columns].to_numpy() >= majority * n_sets
+    summary["priority"] = np.where(reached.any(axis=1), reached.argmax(axis=1) + 1.0, np.nan)
+    summary = (summary.reset_index(names="state")
+               .sort_values(["priority", "n_chosen", "mean_level"], ascending=[True, False, False],
+                            na_position="last")
+               .reset_index(drop=True))
+    return runs, summary
 
 
 # ---------------------------------------------------------------------
