@@ -44,7 +44,7 @@ source scripts/env.sh
 # 5. Khởi tạo + bật PostgreSQL cục bộ (port 5433, user btl, database olist_dw)
 bash scripts/db_start.sh
 
-# 6. ETL: CSV -> staging -> dw  (~5 giây)
+# 6. ETL: kiểm tra CSV -> staging -> dw  (~20 giây)
 python src/etl/run_etl.py
 
 # 7. Huấn luyện mô hình DSS (~2 giây) -> models/
@@ -54,7 +54,7 @@ python src/dss/train_model.py
 streamlit run src/app/Home.py
 ```
 
-Kết quả mong đợi ở bước 6: `dw.fact_sales 112,650 rows`, `dw.fact_delivery 96,470 rows`, và dòng cuối `25/25 checks passed`. Nếu có kiểm tra không đạt, script in `FAIL` kèm giá trị kỳ vọng / thực tế và thoát với mã 1.
+Kết quả mong đợi ở bước 6: `dw.fact_sales 112,650 rows`, `dw.fact_delivery 96,470 rows`, và dòng cuối `43/43 checks passed`. Nếu có kiểm tra không đạt, script in `FAIL` kèm giá trị kỳ vọng / thực tế và thoát với mã 1. Nếu thiếu file CSV hoặc header sai, script dừng **trước khi** nạp gì vào DB (`Contract violated, nothing was loaded`).
 
 Chạy test (cần DB đã bật và đã chạy ETL; nên chạy ETL 2 lần để có test "chạy lại cho cùng kết quả"):
 
@@ -82,7 +82,7 @@ streamlit run src/app/Home.py
 | Tình huống | Cách làm |
 |---|---|
 | Xem dữ liệu bằng SQL | sau `source scripts/env.sh`, gõ `psql` (đã trỏ sẵn vào `olist_dw`) |
-| Xem kết quả kiểm tra dữ liệu | `psql -c "SELECT * FROM meta.check_result ORDER BY check_id DESC LIMIT 25"` |
+| Xem kết quả kiểm tra dữ liệu | trang **Data Quality** trên dashboard, hoặc `psql -c "SELECT * FROM meta.check_result ORDER BY check_id DESC LIMIT 43"` |
 | `pg_ctl: could not start server`, log ghi `could not open directory .../.env-btl/lib` | thư mục project đã bị di chuyển; `rm -rf .env-btl` rồi chạy lại `bash scripts/setup_env.sh` (dữ liệu trong `.pgdata/` vẫn giữ nguyên) |
 | Sửa file SQL / ETL, muốn nạp lại | `python src/etl/run_etl.py` (full refresh, chạy lại bao nhiêu lần cũng được) rồi `python src/dss/train_model.py` |
 | `command not found: python` / `psql` | quên `source scripts/env.sh` trong terminal này |
@@ -137,22 +137,25 @@ src/
     02_dw_schema.sql   tạo dimension, fact, index, partition, meta.etl_log
     03_transform_load.sql   toàn bộ logic Transform + Load (đọc file này kỹ nhất)
     04_olap_views.sql  3 materialized view tổng hợp sẵn
-    05_checks.sql      25 kiểm tra chất lượng dữ liệu (grain, đối chiếu staging-dw, miền giá trị, MV) -> meta.check_result
-  etl/run_etl.py       điều phối: chạy 5 file SQL theo thứ tự + COPY CSV + ghi etl_log + in kết quả kiểm tra
+    05_checks.sql      27 kiểm tra chất lượng dữ liệu (grain, đối chiếu staging-dw, miền giá trị, độ phủ, MV) -> meta.check_result
+  etl/contracts.py     hợp đồng của 8 file CSV (header, khóa, kiểu dữ liệu), kiểm tra TRƯỚC khi COPY -> 16 kiểm tra nhóm 'source'
+  etl/run_etl.py       điều phối: kiểm tra CSV + COPY + chạy 5 file SQL theo thứ tự + ghi etl_log + in kết quả kiểm tra
   dss/
     train_model.py     đọc fact_delivery -> train cây quyết định -> lưu models/
     whatif.py          what-if, sensitivity, goal seeking, xếp hạng ưu tiên
     optimizer.py       tối ưu ngân sách: bảng lợi ích bang x mức, 0-1 integer programming (scipy milp), greedy, khuyến nghị
   app/
     common.py          cache kết nối/truy vấn cho Streamlit
-    Home.py            trang chủ: KPI + xu hướng theo tháng + metadata ETL
+    Home.py            trang chủ: KPI + xu hướng theo tháng + dòng "dữ liệu đến ngày nào, ETL lần cuối, bao nhiêu kiểm tra đạt"
     pages/1_OLAP.py    OLAP Explorer (roll-up, drill-down, slice, dice, pivot)
-    pages/2_Delivery.py   phân tích giao hàng & review
+    pages/2_Delivery.py   giao hàng & review: bao nhiêu review xấu do giao trễ, phân bố số ngày trễ, bảng mẫu số theo bang
     pages/3_DSS.py     giao diện DSS
+    pages/4_Data_Quality.py   kết quả kiểm tra, số dòng CSV -> staging -> dw, lịch sử các lần chạy, quy tắc ETL và kiểm tra bảo vệ nó, mô hình train từ lần ETL nào
 
 tests/
   conftest.py          fixture dùng chung (tự skip test cần DB nếu DB chưa bật)
   test_whatif_unit.py  unit test simulate() trên dữ liệu tự tạo (không cần DB)
+  test_contracts.py    hợp đồng CSV: file thiếu / header sai thì dừng; đếm đúng từng dòng vi phạm (không cần DB)
   test_etl_checks.py   lần ETL mới nhất đạt mọi kiểm tra; cố tình làm hỏng DW (rollback) để chắc kiểm tra bắt được lỗi; chạy lại cho cùng kết quả
   test_dss_model.py    what-if giảm đơn điệu, goal seeking trả mức nhỏ nhất, xếp hạng đúng thứ tự
   test_optimizer.py    MILP khớp với vét cạn trên bài toán nhỏ ngẫu nhiên; greedy khả thi và không vượt tối ưu; options.csv khớp mô hình
@@ -197,6 +200,7 @@ docs/
 
 | Loại | Quy tắc |
 |---|---|
+| Kiểm tra nguồn | Trước khi COPY, mỗi CSV được so với hợp đồng trong [contracts.py](src/etl/contracts.py): đúng tên và thứ tự cột (sai thì dừng hẳn), khóa không trống và không trùng, số / ngày giờ / điểm 1..5 / mã bang / zip 5 chữ số đúng định dạng. Staging để toàn TEXT nên nếu không kiểm tra ở đây, lỗi định dạng chỉ lộ ra khi ép kiểu ở bước Transform. |
 | Cleansing | Đơn có nhiều review → lấy review trả lời gần nhất. 610 sản phẩm thiếu danh mục → `unknown`. 2 danh mục thiếu bản dịch → bổ sung tay. Chuỗi rỗng → NULL khi ép kiểu. (Riêng BOM ở đầu CSV dịch danh mục được xử lý ở bước Extract trong `run_etl.py`, đọc bằng `utf-8-sig`.) |
 | Mapping | Tên danh mục PT → EN; timestamp → `date_key` (yyyymmdd); bang → vùng (5 vùng Brazil). Zip code giữ dạng TEXT (có số 0 đầu). |
 | Business rules | Khách hàng thật = `customer_unique_id` (vì `customer_id` sinh mới mỗi đơn). `fact_delivery` chỉ gồm đơn `delivered` có ngày giao. `is_late` = giao thực tế > ngày dự kiến. Review xấu = điểm ≤ 2. |

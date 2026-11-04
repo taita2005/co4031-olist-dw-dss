@@ -177,10 +177,19 @@ Ghi chú bắt buộc hiển thị trên tab 5 (học cách ghi của B):
 2. Optimizer so với greedy ở 3 mức ngân sách (thấp / vừa / cao): lợi ích, chi phí, các bang được chọn, chênh lệch %.
 3. Độ nhạy theo chi phí: tăng `unit_cost` vùng North thêm ±50%, xem phương án tối ưu có đổi không.
 
-### Phase 4 — Trang Data Quality và metadata model (06–07/11, TV2)
+### Phase 4 — Trang Data Quality và metadata model (06–07/11, TV2) — ✅ xong 04/11
 
 - Trang `src/app/pages/4_Data_Quality.py`: lịch sử `meta.etl_log` (số dòng nguồn so với số dòng đã nạp theo từng lần chạy), kết quả `meta.check_result` của lần chạy gần nhất (đạt/không đạt), các quy tắc làm sạch dữ liệu.
 - `train_model.py` ghi thêm vào `metrics.json`: `trained_at`, `params`, `n_rows`, `etl_run_id` (lấy từ `meta.etl_log`). Mọi số liệu trong báo cáo phải truy ngược được về `etl_run_id` này.
+
+Đã làm thêm (lấy ý tưởng từ repo B, viết lại trong A):
+- **Hợp đồng CSV** (`src/etl/contracts.py`): kiểm tra 8 file trước khi COPY. Thiếu file hoặc sai header thì dừng, không nạp gì. Vi phạm giá trị (khóa trống/trùng, sai định dạng số, ngày, điểm, mã bang, zip) được ghi thành kiểm tra nhóm `source`, cùng với kiểm tra "số dòng CSV = số dòng staging".
+- 2 kiểm tra mapping mới trong `05_checks.sql` (danh mục có tên gốc nhưng không có tên tiếng Anh; bang không map được vùng), mỗi kiểm tra có một ca phá hỏng trong `test_etl_checks.py`.
+- `etl_log` ghi thêm bước `run` chứa thời gian chạy ETL.
+- Trang chủ: dòng "dữ liệu từ … đến …, ETL lần cuối, x/y kiểm tra đạt" thay cho bảng metadata.
+- Trang Delivery: (1) review xấu trên đơn trễ so với đơn đúng hạn (3.983 / 12.272 = 32%, phạm vi của câu hỏi DSS); (2) phân bố số ngày trễ, tách riêng đơn đúng hạn để không lấn át biểu đồ, và tỷ lệ review xấu theo số ngày trễ (chỉ mức ≥ 30 đơn): 20% khi trễ 1 ngày, 73% khi trễ 7 ngày; (3) bảng mẫu số theo bang (số đơn, số đơn trễ, review xấu…), đánh dấu bang < 500 đơn.
+
+Kết quả: 43/43 kiểm tra đạt trên 2 lần chạy liên tiếp (27 trong `05_checks.sql` + 16 kiểm tra nguồn), ETL ~20 giây; 77 test `pytest` đạt.
 
 ### Phase 5 — Đóng băng code và chốt số liệu (08/11, TV1)
 

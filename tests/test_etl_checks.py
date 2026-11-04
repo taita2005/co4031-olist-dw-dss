@@ -63,6 +63,13 @@ BREAKAGES = [
      "UPDATE dw.fact_delivery SET review_score = 7 "
      "WHERE order_id = (SELECT order_id FROM dw.fact_delivery WHERE review_score IS NOT NULL LIMIT 1)",
      "review_score outside 1..5"),
+    ("category translation lost",
+     "UPDATE dw.dim_product SET category_en = 'unknown' "
+     "WHERE product_key = (SELECT product_key FROM dw.dim_product WHERE category_pt <> 'unknown' LIMIT 1)",
+     "products with a source category but no English name"),
+    ("state without region",
+     "UPDATE dw.dim_seller SET region = 'Unknown' WHERE seller_key = (SELECT MIN(seller_key) FROM dw.dim_seller)",
+     "customers/sellers with a state but no region"),
 ]
 
 
