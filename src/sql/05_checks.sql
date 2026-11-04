@@ -105,6 +105,14 @@ INSERT INTO chk SELECT 'coverage', 'source purchase/delivery dates outside dim_d
              AND NOT EXISTS (SELECT 1 FROM dw.dim_date d
                              WHERE d.full_date = o.order_delivered_customer_date::TIMESTAMP::DATE))), NULL;
 
+INSERT INTO chk SELECT 'coverage', 'products with a source category but no English name', 0,
+    (SELECT COUNT(*) FROM dw.dim_product WHERE category_pt <> 'unknown' AND category_en = 'unknown'),
+    'mapping PT -> EN, including the 2 categories missing from the translation file';
+INSERT INTO chk SELECT 'coverage', 'customers/sellers with a state but no region', 0,
+    (SELECT COUNT(*) FROM dw.dim_customer WHERE region = 'Unknown')
+  + (SELECT COUNT(*) FROM dw.dim_seller   WHERE region = 'Unknown'),
+    'mapping UF -> region';
+
 -- ---------------------------------------------------------------------
 -- 5. Aggregates: materialized views agree with the facts they summarise
 -- ---------------------------------------------------------------------

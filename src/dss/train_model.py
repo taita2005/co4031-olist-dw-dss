@@ -19,6 +19,7 @@ Outputs: models/decision_tree.joblib, models/rules.txt, models/metrics.json,
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import joblib
@@ -26,7 +27,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import (accuracy_score, brier_score_loss, confusion_matrix, log_loss,
                              precision_recall_fscore_support, roc_auc_score)
-from sklearn.model_selection import StratifiedKFold, cross_validate, train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.tree import DecisionTreeClassifier, export_text
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -203,7 +204,14 @@ def leaf_check(tree: DecisionTreeClassifier, leaf_rate: dict, leaf_size: dict,
     }
 
 
+def latest_etl_run(engine) -> str | None:
+    """run_id of the ETL run the warehouse currently holds (lineage for every model number)."""
+    run = query(engine, "SELECT MAX(run_id) AS run_id FROM meta.etl_log WHERE step = 'load'")["run_id"].iloc[0]
+    return None if pd.isna(run) else pd.Timestamp(run).isoformat(sep=" ")
+
+
 def train(engine=None, verbose: bool = True) -> dict:
+    engine = engine or get_engine()
     df = load_dataset(engine)
     X, y = build_features(df), df[TARGET]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
@@ -218,6 +226,9 @@ def train(engine=None, verbose: bool = True) -> dict:
     y_pred = tree.predict(X_test)
     precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average="binary")
     metrics = {
+        "trained_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
+        "etl_run_id": latest_etl_run(engine),
+        "n_rows": len(df),
         "n_train": len(X_train),
         "n_test": len(X_test),
         "bad_review_rate": float(y.mean()),
