@@ -1,7 +1,9 @@
 """Model management subsystem — decision tree that predicts bad reviews.
 
 Algorithm: decision tree with the entropy / information gain criterion
-(ID3 / C4.5 family, lecture Ch.5). Target: is_bad_review (score <= 2).
+(lecture Ch.5). scikit-learn implements CART: binary splits, with entropy as
+the split criterion, so it is not ID3/C4.5 itself (those make multiway splits);
+the gain computation is the same. Target: is_bad_review (score <= 2).
 
 The tree is used in two ways:
   * as a classifier (evaluated with accuracy / precision / recall / F1);
@@ -10,17 +12,22 @@ The tree is used in two ways:
     analysis (see whatif.py).
 
 Usage:  python src/dss/train_model.py
-Outputs: models/decision_tree.joblib, models/rules.txt, models/metrics.json
+Outputs: models/decision_tree.joblib, models/rules.txt, models/metrics.json,
+         models/options.csv (per state x level benefits for the budget optimiser),
+         models/experiments.json (parameter grid evaluated by cross-validation)
 """
 import json
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import (accuracy_score, brier_score_loss, confusion_matrix, log_loss,
+                             precision_recall_fscore_support, roc_auc_score)
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.tree import DecisionTreeClassifier, export_text
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -125,15 +132,91 @@ def format_rules(rules: list[dict]) -> str:
     )
 
 
+# Chosen parameters and the grid they were compared against (tree_experiments)
+TREE_PARAMS = {"max_depth": 4, "min_samples_leaf": 200}
+PARAM_GRID = {"max_depth": [3, 4, 5, 6], "min_samples_leaf": [100, 200, 500]}
+
+
+def make_tree(max_depth: int, min_samples_leaf: int) -> DecisionTreeClassifier:
+    # class_weight='balanced' because bad reviews are the minority class
+    return DecisionTreeClassifier(criterion="entropy", max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+                                  class_weight="balanced", random_state=42)
+
+
+def tree_experiments(X_train: pd.DataFrame, y_train: pd.Series) -> list[dict]:
+    """Compare every parameter pair with 5-fold stratified cross-validation on the TRAINING set.
+
+    Two groups of metrics, because the tree is used in two ways:
+      * classifier (tree.predict): accuracy, precision, recall, F1 of the bad class;
+      * risk model (leaf bad-review rate as probability, what whatif.py uses):
+        Brier score and log-loss (lower is better), AUC (higher is better).
+    The test set is not used here, so it stays an unbiased final check of the chosen model.
+    """
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    rows = []
+    for depth in PARAM_GRID["max_depth"]:
+        for leaf in PARAM_GRID["min_samples_leaf"]:
+            folds = []
+            for tr, va in cv.split(X_train, y_train):
+                X_tr, y_tr, X_va, y_va = X_train.iloc[tr], y_train.iloc[tr], X_train.iloc[va], y_train.iloc[va]
+                tree = make_tree(depth, leaf).fit(X_tr, y_tr)
+                rate = pd.Series(y_tr.values).groupby(tree.apply(X_tr)).mean()
+                prob = rate.reindex(tree.apply(X_va)).to_numpy()
+                pred = tree.predict(X_va)
+                precision, recall, f1, _ = precision_recall_fscore_support(y_va, pred, average="binary")
+                folds.append({
+                    "accuracy": accuracy_score(y_va, pred), "precision": precision, "recall": recall, "f1": f1,
+                    "brier": brier_score_loss(y_va, prob), "log_loss": log_loss(y_va, np.clip(prob, 1e-6, 1 - 1e-6)),
+                    "auc": roc_auc_score(y_va, prob),
+                })
+            folds = pd.DataFrame(folds)
+            rows.append({
+                "max_depth": depth, "min_samples_leaf": leaf,
+                "n_leaves": int(make_tree(depth, leaf).fit(X_train, y_train).get_n_leaves()),
+                **{f"cv_{m}": float(folds[m].mean()) for m in folds.columns},
+                "cv_f1_std": float(folds["f1"].std()),
+                "chosen": depth == TREE_PARAMS["max_depth"] and leaf == TREE_PARAMS["min_samples_leaf"],
+            })
+    return rows
+
+
+def leaf_check(tree: DecisionTreeClassifier, leaf_rate: dict, leaf_size: dict,
+               X_test: pd.DataFrame, y_test: pd.Series) -> dict:
+    """Are the leaf bad-review rates (learned on train) still right on unseen test orders?
+
+    The what-if and the optimiser use leaf_rate as probabilities, so this is the
+    out-of-sample check of the risk model, not only of the classifier.
+    """
+    test = pd.Series(y_test.values).groupby(tree.apply(X_test)).agg(["size", "mean"])
+    leaves = []
+    for leaf, rate in sorted(leaf_rate.items(), key=lambda kv: -kv[1]):
+        n_test = int(test["size"].get(leaf, 0))
+        leaves.append({"leaf": int(leaf), "n_train": int(leaf_size[leaf]), "rate_train": float(rate),
+                       "n_test": n_test, "rate_test": float(test["mean"].get(leaf, np.nan)) if n_test else None})
+    df = pd.DataFrame(leaves).dropna(subset=["rate_test"])
+    weights = df["n_test"] / df["n_test"].sum()
+    return {
+        "leaves": leaves,
+        "expected_bad_test": float((df["rate_train"] * df["n_test"]).sum()),   # what the risk model predicts
+        "actual_bad_test": int(y_test.sum()),
+        "n_test": int(len(y_test)),
+        "weighted_mean_abs_diff_pts": float((weights * (df["rate_train"] - df["rate_test"]).abs()).sum()),
+    }
+
+
+def latest_etl_run(engine) -> str | None:
+    """run_id of the ETL run the warehouse currently holds (lineage for every model number)."""
+    run = query(engine, "SELECT MAX(run_id) AS run_id FROM meta.etl_log WHERE step = 'load'")["run_id"].iloc[0]
+    return None if pd.isna(run) else pd.Timestamp(run).isoformat(sep=" ")
+
+
 def train(engine=None, verbose: bool = True) -> dict:
+    engine = engine or get_engine()
     df = load_dataset(engine)
     X, y = build_features(df), df[TARGET]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
 
-    # class_weight='balanced' because bad reviews are the minority class
-    tree = DecisionTreeClassifier(
-        criterion="entropy", max_depth=4, min_samples_leaf=200, class_weight="balanced", random_state=42
-    )
+    tree = make_tree(**TREE_PARAMS)
     tree.fit(X_train, y_train)
 
     # Risk model: real (unweighted) bad-review rate of each leaf on the training data
@@ -143,6 +226,9 @@ def train(engine=None, verbose: bool = True) -> dict:
     y_pred = tree.predict(X_test)
     precision, recall, f1, _ = precision_recall_fscore_support(y_test, y_pred, average="binary")
     metrics = {
+        "trained_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
+        "etl_run_id": latest_etl_run(engine),
+        "n_rows": len(df),
         "n_train": len(X_train),
         "n_test": len(X_test),
         "bad_review_rate": float(y.mean()),
@@ -155,13 +241,36 @@ def train(engine=None, verbose: bool = True) -> dict:
             zip(FEATURES, tree.feature_importances_.round(4).tolist()), key=lambda kv: -kv[1]
         )),
         "information_gain_is_late": information_gain(df, "is_late"),
+        "params": TREE_PARAMS,
+        "leaf_check": leaf_check(tree, leaf_rate, leaf_size, X_test, y_test),
     }
     rules = extract_rules(tree, leaf_rate, leaf_size)
     rules_text = format_rules(rules) + "\n\n" + export_text(tree, feature_names=FEATURES)
 
     bundle = {"tree": tree, "features": FEATURES, "leaf_rate": leaf_rate, "metrics": metrics, "rules": rules}
+
+    # Pre-compute the optimiser's benefit table (imported here: optimizer -> whatif -> this module)
+    from dss.optimizer import OPTIONS_PATH, build_options
+    from dss.whatif import predict_bad_prob
+    started = time.perf_counter()
+    options = build_options(bundle, df)
+    metrics["optimizer_baseline"] = {
+        "n_reviews": len(df),
+        "expected_bad_before": float(predict_bad_prob(bundle, df).sum()),
+        "n_options": len(options),
+        "n_states": int(options["state"].nunique()),
+        "build_seconds": round(time.perf_counter() - started, 2),
+    }
+
+    started = time.perf_counter()
+    experiments = {"method": "5-fold stratified CV on the training set (80%)",
+                   "rows": tree_experiments(X_train, y_train)}
+    experiments["seconds"] = round(time.perf_counter() - started, 2)
+
     MODEL_DIR.mkdir(exist_ok=True)
+    (MODEL_DIR / "experiments.json").write_text(json.dumps(experiments, indent=2), encoding="utf-8")
     joblib.dump(bundle, MODEL_PATH)
+    options.to_csv(OPTIONS_PATH, index=False)
     (MODEL_DIR / "rules.txt").write_text(rules_text, encoding="utf-8")
     (MODEL_DIR / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
