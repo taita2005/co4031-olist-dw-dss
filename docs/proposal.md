@@ -45,6 +45,8 @@ Ghi chú nguồn: các khái niệm đánh dấu *(slide)* có trong lecture; *(
 - *Goal seeking:* cần giảm tỷ lệ trễ bao nhiêu để tỷ lệ review xấu ≤ mục tiêu T%?
 - Xếp hạng bang/danh mục nên ưu tiên đầu tư.
 
+> **Cập nhật 04/11:** câu hỏi quyết định đã được thu hẹp và thêm ràng buộc ngân sách: *Nếu Olist đầu tư cải thiện giao hàng với ngân sách có hạn, nên ưu tiên những bang nào để giảm review 1–2 sao nhiều nhất, và thứ tự ưu tiên đó có còn đúng khi giả định về chi phí thay đổi không?* Danh mục chỉ còn dùng để phân tích; Choice có thêm tối ưu ngân sách và phân tích độ vững. Chi tiết ở `docs/plan.md` §1.
+
 **Khung trình bày theo quá trình ra quyết định của Simon** *(slide Ch5-cont)*:
 | Pha | Trong project |
 |---|---|

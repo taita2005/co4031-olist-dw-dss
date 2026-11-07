@@ -12,7 +12,7 @@ st.title("Olist — Kho dữ liệu bán hàng, giao hàng & DSS")
 st.caption(
     "Dashboard trên kho dữ liệu PostgreSQL (fact constellation: fact_sales + fact_delivery). "
     "Chọn trang ở thanh bên: **OLAP** để phân tích đa chiều, **Delivery** để xem hiệu suất giao hàng, "
-    "**DSS** để chạy mô hình hỗ trợ quyết định."
+    "**DSS** để chạy mô hình hỗ trợ quyết định, **Data Quality** để xem dữ liệu có đáng tin không."
 )
 
 # ---------------------------------------------------------------- KPIs
@@ -56,12 +56,19 @@ with right:
     st.plotly_chart(fig, use_container_width=True)
 st.caption(f"Chỉ hiển thị {FULL_MONTHS[0]} → {FULL_MONTHS[1]}: các tháng đầu/cuối bộ dữ liệu có rất ít đơn.")
 
-# ---------------------------------------------------------------- Metadata
-with st.expander("Metadata — lịch sử ETL (meta.etl_log)"):
-    log = run_query("""
-        SELECT run_id, step, table_name, source_rows, loaded_rows, note
-        FROM meta.etl_log
-        WHERE run_id = (SELECT MAX(run_id) FROM meta.etl_log)
-        ORDER BY log_id
-    """)
-    st.dataframe(log, use_container_width=True, hide_index=True)
+# ---------------------------------------------------------------- Freshness
+fresh = run_query("""
+    SELECT (SELECT MAX(run_id) FROM meta.check_result WHERE run_id > '2000-01-01') AS run_id,
+           (SELECT MIN(full_date) FROM dw.dim_date d JOIN dw.fact_sales f ON f.purchase_date_key = d.date_key) AS first_day,
+           (SELECT MAX(full_date) FROM dw.dim_date d JOIN dw.fact_sales f ON f.purchase_date_key = d.date_key) AS last_day
+""").iloc[0]
+checks = run_query(
+    "SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE passed) AS ok FROM meta.check_result WHERE run_id = :r",
+    {"r": fresh.run_id},
+).iloc[0]
+status = "✅" if checks.ok == checks.n else "❌"
+st.info(
+    f"Dữ liệu đơn hàng từ {fresh.first_day:%d/%m/%Y} đến {fresh.last_day:%d/%m/%Y}. "
+    f"ETL lần cuối {fresh.run_id:%d/%m/%Y %H:%M}, {status} {checks.ok}/{checks.n} kiểm tra chất lượng đạt "
+    "(chi tiết ở trang **Data Quality**)."
+)

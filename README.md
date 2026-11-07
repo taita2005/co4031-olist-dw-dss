@@ -2,7 +2,9 @@
 
 Kho dữ liệu (Data Warehouse) phân tích **bán hàng – giao hàng** và hệ hỗ trợ quyết định (DSS) giúp quản lý vận hành sàn TMĐT Olist trả lời:
 
-> *Nên ưu tiên cải thiện giao hàng ở bang / danh mục nào, và cải thiện bao nhiêu, để giảm tỷ lệ đánh giá 1–2 sao?*
+> *Nếu Olist đầu tư cải thiện giao hàng với ngân sách có hạn, nên ưu tiên những bang nào để giảm review 1–2 sao nhiều nhất, và thứ tự ưu tiên đó có còn đúng khi giả định về chi phí thay đổi không?*
+
+Phạm vi: giao trễ chỉ liên quan khoảng 1/3 số review xấu (3.983 / 12.272); DSS xử lý phần đó.
 
 **Repo:** https://github.com/taita2005/co4031-olist-dw-dss
 
@@ -42,7 +44,7 @@ source scripts/env.sh
 # 5. Khởi tạo + bật PostgreSQL cục bộ (port 5433, user btl, database olist_dw)
 bash scripts/db_start.sh
 
-# 6. ETL: CSV -> staging -> dw  (~5 giây)
+# 6. ETL: kiểm tra CSV -> staging -> dw  (~20 giây)
 python src/etl/run_etl.py
 
 # 7. Huấn luyện mô hình DSS (~2 giây) -> models/
@@ -52,7 +54,13 @@ python src/dss/train_model.py
 streamlit run src/app/Home.py
 ```
 
-Kết quả mong đợi ở bước 6: dòng cuối in `dw.fact_sales 112,650 rows` và `dw.fact_delivery 96,470 rows`.
+Kết quả mong đợi ở bước 6: `dw.fact_sales 112,650 rows`, `dw.fact_delivery 96,470 rows`, và dòng cuối `43/43 checks passed`. Nếu có kiểm tra không đạt, script in `FAIL` kèm giá trị kỳ vọng / thực tế và thoát với mã 1. Nếu thiếu file CSV hoặc header sai, script dừng **trước khi** nạp gì vào DB (`Contract violated, nothing was loaded`).
+
+Chạy test (cần DB đã bật và đã chạy ETL; nên chạy ETL 2 lần để có test "chạy lại cho cùng kết quả"):
+
+```bash
+python -m pytest tests -q
+```
 
 ### 1.2 Những lần sau
 
@@ -74,6 +82,8 @@ streamlit run src/app/Home.py
 | Tình huống | Cách làm |
 |---|---|
 | Xem dữ liệu bằng SQL | sau `source scripts/env.sh`, gõ `psql` (đã trỏ sẵn vào `olist_dw`) |
+| Xem kết quả kiểm tra dữ liệu | trang **Data Quality** trên dashboard, hoặc `psql -c "SELECT * FROM meta.check_result ORDER BY check_id DESC LIMIT 43"` |
+| `pg_ctl: could not start server`, log ghi `could not open directory .../.env-btl/lib` | thư mục project đã bị di chuyển; `rm -rf .env-btl` rồi chạy lại `bash scripts/setup_env.sh` (dữ liệu trong `.pgdata/` vẫn giữ nguyên) |
 | Sửa file SQL / ETL, muốn nạp lại | `python src/etl/run_etl.py` (full refresh, chạy lại bao nhiêu lần cũng được) rồi `python src/dss/train_model.py` |
 | `command not found: python` / `psql` | quên `source scripts/env.sh` trong terminal này |
 | `Missing source file: .../data/...csv` | chưa đặt CSV vào `data/` (xem `data/README.md`) |
@@ -103,7 +113,7 @@ Ba schema trong cùng database `olist_dw`:
 |---|---|---|
 | `staging` | Data staging area: bản sao y nguyên CSV | Xoá & tạo lại mỗi lần ETL |
 | `dw` | Dimensional data store: dimension + fact + materialized view | Xoá & tạo lại mỗi lần ETL (full refresh) |
-| `meta` | `etl_log`: lịch sử các lần chạy ETL ("history of extracts") | **Giữ lại** qua các lần chạy |
+| `meta` | `etl_log`: lịch sử các lần chạy ETL ("history of extracts"); `check_result`: kết quả kiểm tra chất lượng dữ liệu của từng lần chạy | **Giữ lại** qua các lần chạy |
 
 ---
 
@@ -127,18 +137,31 @@ src/
     02_dw_schema.sql   tạo dimension, fact, index, partition, meta.etl_log
     03_transform_load.sql   toàn bộ logic Transform + Load (đọc file này kỹ nhất)
     04_olap_views.sql  3 materialized view tổng hợp sẵn
-  etl/run_etl.py       điều phối: chạy 4 file SQL theo thứ tự + COPY CSV + ghi etl_log
+    05_checks.sql      27 kiểm tra chất lượng dữ liệu (grain, đối chiếu staging-dw, miền giá trị, độ phủ, MV) -> meta.check_result
+  etl/contracts.py     hợp đồng của 8 file CSV (header, khóa, kiểu dữ liệu), kiểm tra TRƯỚC khi COPY -> 16 kiểm tra nhóm 'source'
+  etl/run_etl.py       điều phối: kiểm tra CSV + COPY + chạy 5 file SQL theo thứ tự + ghi etl_log + in kết quả kiểm tra
   dss/
     train_model.py     đọc fact_delivery -> train cây quyết định -> lưu models/
     whatif.py          what-if, sensitivity, goal seeking, xếp hạng ưu tiên
+    optimizer.py       tối ưu ngân sách: bảng lợi ích bang x mức, 0-1 integer programming (scipy milp), greedy, khuyến nghị
   app/
     common.py          cache kết nối/truy vấn cho Streamlit
-    Home.py            trang chủ: KPI + xu hướng theo tháng + metadata ETL
+    Home.py            trang chủ: KPI + xu hướng theo tháng + dòng "dữ liệu đến ngày nào, ETL lần cuối, bao nhiêu kiểm tra đạt"
     pages/1_OLAP.py    OLAP Explorer (roll-up, drill-down, slice, dice, pivot)
-    pages/2_Delivery.py   phân tích giao hàng & review
+    pages/2_Delivery.py   giao hàng & review: bao nhiêu review xấu do giao trễ, phân bố số ngày trễ, bảng mẫu số theo bang
     pages/3_DSS.py     giao diện DSS
+    pages/4_Data_Quality.py   kết quả kiểm tra, số dòng CSV -> staging -> dw, lịch sử các lần chạy, quy tắc ETL và kiểm tra bảo vệ nó, mô hình train từ lần ETL nào
 
-models/                (sinh ra, không có trên GitHub) decision_tree.joblib, rules.txt, metrics.json
+tests/
+  conftest.py          fixture dùng chung (tự skip test cần DB nếu DB chưa bật)
+  test_whatif_unit.py  unit test simulate() trên dữ liệu tự tạo (không cần DB)
+  test_contracts.py    hợp đồng CSV: file thiếu / header sai thì dừng; đếm đúng từng dòng vi phạm (không cần DB)
+  test_etl_checks.py   lần ETL mới nhất đạt mọi kiểm tra; cố tình làm hỏng DW (rollback) để chắc kiểm tra bắt được lỗi; chạy lại cho cùng kết quả
+  test_dss_model.py    what-if giảm đơn điệu, goal seeking trả mức nhỏ nhất, xếp hạng đúng thứ tự
+  test_optimizer.py    MILP khớp với vét cạn trên bài toán nhỏ ngẫu nhiên; greedy khả thi và không vượt tối ưu; options.csv khớp mô hình
+config/
+  cost_assumptions.csv 2 tham số GIẢ ĐỊNH của chi phí: phụ phí (% phí ship) và hệ số theo mức (xem config/README.md)
+models/                (sinh ra, không có trên GitHub) decision_tree.joblib, rules.txt, metrics.json, options.csv
 data/README.md         link tải dữ liệu Olist + danh sách CSV cần đặt vào data/ (CSV không có trên GitHub)
 docs/
   proposal.md          đề xuất đã duyệt (+ bảng thay đổi so với bản đầu)
@@ -177,6 +200,7 @@ docs/
 
 | Loại | Quy tắc |
 |---|---|
+| Kiểm tra nguồn | Trước khi COPY, mỗi CSV được so với hợp đồng trong [contracts.py](src/etl/contracts.py): đúng tên và thứ tự cột (sai thì dừng hẳn), khóa không trống và không trùng, số / ngày giờ / điểm 1..5 / mã bang / zip 5 chữ số đúng định dạng. Staging để toàn TEXT nên nếu không kiểm tra ở đây, lỗi định dạng chỉ lộ ra khi ép kiểu ở bước Transform. |
 | Cleansing | Đơn có nhiều review → lấy review trả lời gần nhất. 610 sản phẩm thiếu danh mục → `unknown`. 2 danh mục thiếu bản dịch → bổ sung tay. Chuỗi rỗng → NULL khi ép kiểu. (Riêng BOM ở đầu CSV dịch danh mục được xử lý ở bước Extract trong `run_etl.py`, đọc bằng `utf-8-sig`.) |
 | Mapping | Tên danh mục PT → EN; timestamp → `date_key` (yyyymmdd); bang → vùng (5 vùng Brazil). Zip code giữ dạng TEXT (có số 0 đầu). |
 | Business rules | Khách hàng thật = `customer_unique_id` (vì `customer_id` sinh mới mỗi đơn). `fact_delivery` chỉ gồm đơn `delivered` có ngày giao. `is_late` = giao thực tế > ngày dự kiến. Review xấu = điểm ≤ 2. |
@@ -193,7 +217,7 @@ docs/
 
 Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dưới đây).
 
-**Mô hình:** cây quyết định `DecisionTreeClassifier(criterion="entropy", max_depth=4, min_samples_leaf=200, class_weight="balanced")` — tiêu chí information gain như ID3/C4.5 trong lecture Ch.5.
+**Mô hình:** cây quyết định `DecisionTreeClassifier(criterion="entropy", max_depth=4, min_samples_leaf=200, class_weight="balanced")` — tiêu chí entropy / information gain (lecture Ch.5). scikit-learn cài đặt theo CART (tách nhị phân), không phải ID3/C4.5 nguyên bản. Tham số 4 / 200 được chọn bằng thực nghiệm (`tree_experiments()`, cross-validation 5-fold trên tập train, lưu ở `models/experiments.json`).
 - Input: `is_late, delay_days, delivery_days, estimated_days, n_items, n_sellers, freight_ratio, same_state, region_*`
 - Target: `is_bad_review`
 - Chia train/test 80/20 (stratified, `random_state=42`).
@@ -206,6 +230,8 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 | Sensitivity | `sensitivity()` | Quét `late_reduction` 0% → 100%, vẽ đường tỷ lệ review xấu. |
 | Goal seeking | `goal_seek()` | Duyệt `late_reduction` từng 1% (complete enumeration), trả về mức nhỏ nhất đạt mục tiêu; `None` nếu không đạt. |
 | Xếp hạng (Choice) | `priority_ranking()` | Với mỗi bang/danh mục: giả sử hết trễ → tổng số review xấu tránh được; sắp giảm dần. |
+| Tối ưu ngân sách (Choice) | `optimizer.solve()` | Mỗi bang chọn 1 mức giảm đơn trễ (25/50/75/100%) hoặc không làm, để tối đa review xấu tránh được với tổng chi phí ≤ ngân sách và ≤ K bang (0-1 integer programming). Lợi ích lấy từ mô hình (tính sẵn trong `models/options.csv`). Chi phí (BRL) = phí ship **thực tế** của các đơn trễ được sửa × phụ phí × hệ số theo mức; chỉ 2 tham số cuối là **giả định** (`config/`). So sánh với `greedy()`; `tier_sensitivity()` kiểm tra độ nhạy theo hệ số; `recommend()` sinh khuyến nghị bằng lời. |
+| Độ vững (kết luận chính) | `optimizer.robustness()` | Giải lại bài toán với 2 cách tính chi phí (phí ship thật / đồng đều) × 3 kịch bản hệ số × 3 mức ngân sách (10k / 20k / 40k BRL). Bang được chọn ở mức ngân sách nhỏ nhất trong ≥ 4/6 bộ giả định là ưu tiên cao nhất. |
 
 ### Kết quả hiện tại (dữ liệu đầy đủ)
 - Accuracy 79.7%, precision (review xấu) 32.9%, recall 56.8%, F1 0.417.
@@ -213,7 +239,11 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 - Đơn nhiều sản phẩm từ nhiều người bán cũng rủi ro cao (~45–54%) dù không trễ → gợi ý nguyên nhân giao tách nhiều lần.
 - Gain(is_late) = 0.0728 bit.
 - Giảm 50% đơn trễ toàn quốc: review xấu kỳ vọng 12.9% → 11.2%. Muốn ≤ 11% cần giảm 58% đơn trễ.
-- Ưu tiên theo số review xấu tránh được: SP (~805), RJ (~769, nhưng tỷ lệ trễ RJ 11.9% gấp ~2.7 lần SP).
+- Ưu tiên theo **tổng** số review xấu tránh được (chưa tính chi phí): SP (~805), RJ (~769, nhưng tỷ lệ trễ RJ 11.9% gấp ~2.7 lần SP).
+- **Kết luận vững qua 18 kịch bản giả định** (tab 5): ưu tiên 1 = RJ, GO, PR, RN (đã được chọn từ 10.000 BRL); ưu tiên 2 = RS, ES, SP, SE, PA, SC, AL, TO, MT, DF, MG; ưu tiên 3 = BA, PI, MS, PE, CE; ít khi được chọn: RO, PB, MA, AM. Mức giảm % cụ thể ở mỗi bang phụ thuộc giả định chi phí.
+- Ví dụ với giả định mặc định, 40.000 BRL: tránh ~1.411 review xấu (12,85% → 11,38%); greedy 1.405.
+- Chọn tham số cây (CV 5-fold): depth 3 có F1 cao nhất (0,445) nhưng xác suất kém nhất (AUC 0,731); depth 4 có AUC 0,741, Brier 0,0874, gần bằng depth 6 (0,746 / 0,0872) với 15 lá thay vì 39.
+- Kiểm tra mô hình rủi ro trên tập test: dự kiến 2.498 review xấu, thực tế 2.454; tỷ lệ của lá lệch trung bình 0,6 điểm %.
 
 ---
 
@@ -225,7 +255,8 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 - [ ] Grain của 2 fact có hợp lý? Có join nào gây nhân dòng không (đặc biệt `order_reviews`, `order_items`)?
 - [ ] Các business rule (định nghĩa trễ, review xấu, khách hàng thật) có đúng ý nhóm?
 - [ ] `run_etl.py` chạy lại nhiều lần có ra cùng kết quả? `meta.etl_log` có tăng thêm 1 lượt mỗi lần?
-- [ ] Đối chiếu: `SELECT SUM(price::numeric) FROM staging.order_items` = `SELECT SUM(price) FROM dw.fact_sales` (đều 13,591,643.70).
+- [ ] Đối chiếu: `SELECT SUM(price::numeric) FROM staging.order_items` = `SELECT SUM(price) FROM dw.fact_sales` (đều 13,591,643.70). Đã tự động hoá trong `05_checks.sql`; đọc lại xem còn thiếu kiểm tra nào không.
+- [ ] `python -m pytest tests -q` chạy xanh.
 - [ ] Trang OLAP: thử drill-down Năm → Quý → Tháng, pivot, dice theo bang; mở expander SQL để đối chiếu.
 - [ ] `whatif.simulate`: thao tác trên đơn trễ có đúng (`delivery_days = estimated_days`, `delay_days = 0`)?
 - [ ] Kéo slider what-if: tỷ lệ review xấu phải giảm khi tăng mức giảm trễ.
