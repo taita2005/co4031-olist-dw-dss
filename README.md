@@ -15,6 +15,7 @@ README này tập trung vào **code**: cách chạy, code nằm ở đâu, và c
 | [docs/proposal.md](docs/proposal.md) | Đề xuất đã duyệt: bài toán, thiết kế, ánh xạ với lecture, bảng thay đổi so với bản đầu | Muốn hiểu vì sao thiết kế như vậy |
 | [docs/report.md](docs/report.md) | Bản báo cáo thô đầy đủ (5 section), mọi số liệu ở dạng bảng, đối chiếu với yêu cầu của đề | Viết báo cáo PDF chính thức và slide |
 | [docs/handoff.md](docs/handoff.md) | Bàn giao tiến độ: việc đã xong, việc còn lại theo thứ tự, các quyết định đã chốt kèm lý do | Bắt đầu một phiên làm việc mới, hoặc cần biết bước tiếp theo |
+| [docs/metabase.md](docs/metabase.md) | Tùy chọn chạy DW, Streamlit và 3 dashboard Metabase bằng Docker Compose | Muốn chạy giao diện BI bổ sung trên máy host chỉ có Docker |
 
 ---
 
@@ -270,3 +271,9 @@ Hybrid DSS = **data-driven** (OLAP trên DW) + **model-driven** (mô hình dư�
 - What-if giả định giao trễ là *nguyên nhân* của review xấu; thực tế còn chất lượng sản phẩm, đóng gói…
 - Precision của mô hình còn thấp (review xấu có nhiều nguyên nhân ngoài dữ liệu giao hàng).
 - Hướng phát triển: incremental ETL, SCD type 2, bản đồ địa lý, mô hình tối ưu (LP) chọn đơn vị vận chuyển.
+
+## 8. Tùy chọn Docker Compose và Metabase
+
+Phần triển khai Metabase là phần mở rộng bổ sung sau khi kế hoạch kỹ thuật cũ được chốt. Cách micromamba/PostgreSQL cục bộ phía trên vẫn được giữ nguyên. Docker Compose đưa lên cùng một luồng chạy PostgreSQL, ETL, huấn luyện, Streamlit và Metabase; xem [hướng dẫn triển khai và định nghĩa dashboard](docs/metabase.md) cùng [kết quả nghiệm thu](docs/metabase_acceptance.md). Các metric trong report hiện tại không được cập nhật hoặc suy ra từ dashboard mới.
+
+Sau bước bootstrap `.env` một lần và đặt đủ 8 CSV trong `data/`, `docker compose up -d` chạy các job khởi tạo theo dependency trước khi mở Streamlit: bootstrap role, nạp ETL khi DW trống, train khi model thiếu/cũ, rồi provision Metabase theo chế độ giữ chỉnh sửa thủ công. Các volume đã sẵn sàng được giữ lại; DW partial hoặc chưa qua quality gate dừng fail-closed. Xem [lệnh chạy và giới hạn](docs/metabase.md#lần-chạy-đầu).

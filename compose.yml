@@ -1,0 +1,195 @@
+services:
+  bootstrap:
+    profiles: [jobs]
+    build: .
+    command: ["python", "scripts/docker_init.py"]
+    working_dir: /app
+    volumes:
+      - .:/app
+
+  postgres:
+    image: postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-}
+      POSTGRES_DB: olist_dw
+    volumes:
+      - olist_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d olist_dw"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  db-init:
+    build: .
+    working_dir: /app
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: olist_dw
+      PGUSER: btl
+      PGPASSWORD: ${BTL_PASSWORD:-}
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-}
+      METABASE_RO_PASSWORD: ${METABASE_RO_PASSWORD:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "scripts/docker_bootstrap_db.py"]
+
+  metabase-db:
+    image: postgres:16@sha256:9e2cf6287f25c3151f4c9421ccce2b17f3e60061c111a29165e0d2cdd9ff0a97
+    environment:
+      POSTGRES_USER: metabase_app
+      POSTGRES_PASSWORD: ${METABASE_DB_PASSWORD:-}
+      POSTGRES_DB: metabase_app
+    volumes:
+      - metabase_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase_app -d metabase_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  etl-init:
+    build: .
+    working_dir: /app
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: olist_dw
+      PGUSER: btl
+      PGPASSWORD: ${BTL_PASSWORD:-}
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    command: ["python", "scripts/docker_pipeline.py", "etl"]
+
+  train-init:
+    build: .
+    working_dir: /app
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: olist_dw
+      PGUSER: btl
+      PGPASSWORD: ${BTL_PASSWORD:-}
+    volumes:
+      - ./data:/app/data:ro
+      - model_data:/app/models
+    depends_on:
+      etl-init:
+        condition: service_completed_successfully
+    command: ["python", "scripts/docker_pipeline.py", "train"]
+
+  metabase-init:
+    build: .
+    working_dir: /app
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: olist_dw
+      PGUSER: btl
+      PGPASSWORD: ${BTL_PASSWORD:-}
+      METABASE_URL: http://metabase:3000
+      METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL:-admin@olist.local}
+      METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD:-}
+      METABASE_RO_PASSWORD: ${METABASE_RO_PASSWORD:-}
+    volumes:
+      - ./.runtime:/app/.runtime
+    depends_on:
+      etl-init:
+        condition: service_completed_successfully
+      metabase:
+        condition: service_healthy
+    command: ["python", "scripts/metabase_provision.py"]
+
+  tools:
+    profiles: [jobs]
+    build: .
+    working_dir: /app
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: olist_dw
+      PGUSER: btl
+      PGPASSWORD: ${BTL_PASSWORD:-}
+      POSTGRES_ADMIN_USER: postgres
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-}
+      POSTGRES_DB: olist_dw
+      METABASE_URL: http://metabase:3000
+      METABASE_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL:-admin@olist.local}
+      METABASE_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD:-}
+      METABASE_DB_PASSWORD: ${METABASE_DB_PASSWORD:-}
+      METABASE_PORT: ${METABASE_PORT:-3000}
+      STREAMLIT_PORT: ${STREAMLIT_PORT:-8501}
+      METABASE_RO_PASSWORD: ${METABASE_RO_PASSWORD:-}
+    volumes:
+      - ./data:/app/data:ro
+      - model_data:/app/models
+      - ./.runtime:/app/.runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "-c", "print('tools job container ready; pass an explicit command')"]
+
+  app:
+    build: .
+    working_dir: /app
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: olist_dw
+      PGUSER: btl
+      PGPASSWORD: ${BTL_PASSWORD:-}
+      STREAMLIT_PORT: 8501
+    volumes:
+      - ./data:/app/data:ro
+      - model_data:/app/models
+      - ./.runtime:/app/.runtime
+    ports:
+      - "127.0.0.1:${STREAMLIT_PORT:-8501}:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      train-init:
+        condition: service_completed_successfully
+      metabase-init:
+        condition: service_completed_successfully
+    command: ["python", "scripts/docker_app.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  metabase:
+    image: metabase/metabase:v0.64.1@sha256:fcf3ad4c00f303d96c63233967a24f0d0348bbb725d4704ee1961f9185674e13
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: metabase-db
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: metabase_app
+      MB_DB_USER: metabase_app
+      MB_DB_PASS: ${METABASE_DB_PASSWORD:-}
+      MB_ENABLE_PUBLIC_SHARING: "false"
+      MB_ENABLE_EMBEDDING: "false"
+      MB_ANON_TRACKING_ENABLED: "false"
+      MB_LOAD_SAMPLE_CONTENT: "false"
+      JAVA_TOOL_OPTIONS: "-Xmx1g"
+    ports:
+      - "127.0.0.1:${METABASE_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      metabase-db:
+        condition: service_healthy
+
+volumes:
+  olist_data:
+  metabase_data:
+  model_data:

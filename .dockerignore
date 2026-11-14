@@ -1,0 +1,15 @@
+.git
+.env*
+!.env.example
+.pgdata
+.env-btl
+.mamba
+.tools
+.venv*
+.runtime
+models
+data
+*.log
+*.backup
+__pycache__
+.pytest_cache

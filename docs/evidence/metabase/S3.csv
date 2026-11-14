@@ -1,0 +1,31 @@
+customer_region,category_group,revenue_brl,share
+Central-West,bed_bath_table,51908.11,0.06043763540965419
+Central-West,computers_accessories,56702.5,0.06601983816817673
+Central-West,Danh mục khác trong bộ lọc,519204.37,0.6045198797867847
+Central-West,health_beauty,84538.79,0.09843017917611177
+Central-West,sports_leisure,60818.13,0.07081174728259132
+Central-West,watches_gifts,85698.73,0.09978072017668133
+North,bed_bath_table,8777.74,0.026380732490637614
+North,computers_accessories,23791.63,0.07150367025523979
+North,Danh mục khác trong bộ lọc,194055.41,0.5832166206302537
+North,health_beauty,42194.68,0.12681243299619915
+North,sports_leisure,26293.8,0.07902372409781189
+North,watches_gifts,37619.73,0.11306281952985786
+Northeast,bed_bath_table,60542.92,0.039513041373451976
+Northeast,computers_accessories,97940.9,0.06392065057075415
+Northeast,Danh mục khác trong bộ lọc,911938.9,0.5951724741020137
+Northeast,health_beauty,199683.01,0.13032214230343409
+Northeast,sports_leisure,97968.36,0.06393857220578786
+Northeast,watches_gifts,164152.18,0.10713311944455828
+South,bed_bath_table,136407.64,0.07069993933206895
+South,computers_accessories,133699.16,0.06929613693740747
+South,Danh mục khác trong bộ lọc,1217688.53,0.6311267110577986
+South,health_beauty,144861.5,0.07508156626382881
+South,sports_leisure,155300.63,0.08049215659205075
+South,watches_gifts,141430.9,0.07330348981684538
+Southeast,bed_bath_table,777848.66,0.08842895868228713
+Southeast,computers_accessories,590788.51,0.0671632097955404
+Southeast,Danh mục khác trong bộ lọc,5244535.42,0.5962198430257261
+Southeast,health_beauty,779867.56,0.08865847534004376
+Southeast,sports_leisure,637347.85,0.07245626249956455
+Southeast,watches_gifts,765923.43,0.0870732506568381
