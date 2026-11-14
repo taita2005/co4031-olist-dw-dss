@@ -1,7 +1,7 @@
 # BÁO CÁO BÀI TẬP LỚN — CO4031 Kho dữ liệu & Hệ hỗ trợ Quyết định (HK261)
 
 > **Bản raw.** Tài liệu này chứa toàn bộ nội dung và số liệu của project. Nó là nguồn để viết báo cáo chính thức (PDF) và slide thuyết trình.
-> - Mọi số liệu đều lấy từ kho dữ liệu (PostgreSQL) và từ mô hình đã huấn luyện. Thời điểm lấy: 02/11/2026, dữ liệu Olist đầy đủ.
+> - Mọi số liệu đều lấy từ kho dữ liệu (PostgreSQL) và từ mô hình đã huấn luyện, trên dữ liệu Olist đầy đủ. Số liệu gốc lấy ngày 02/11/2026. Ngày 14/11/2026 đã chạy lại ETL và train lại mô hình: số dòng, tổng tiền và metrics mô hình không đổi. Cũng trong lần cập nhật này, nhóm bổ sung các phần mới: kiểm soát chất lượng dữ liệu (§2.5), thực nghiệm chọn tham số (§4.2.2), kiểm tra mô hình rủi ro trên tập test (§4.3) và tối ưu ngân sách (§4.4.7).
 > - Số liệu được trình bày dưới dạng bảng để vẽ biểu đồ sau. Gợi ý loại biểu đồ ghi trong ngoặc *(biểu đồ: …)*.
 > - Chỗ nhóm cần tự điền được đánh dấu **[TODO]**. Chỗ cần chèn ảnh chụp màn hình được đánh dấu **[HÌNH]**.
 
@@ -72,6 +72,7 @@ Tài liệu tham khảo · Phụ lục A–E
 2. *What-if:* nếu giảm X% đơn trễ (hoặc rút ngắn N ngày giao) ở một bang hay danh mục, tỷ lệ review xấu giảm bao nhiêu?
 3. *Goal seeking:* cần giảm bao nhiêu % đơn trễ để tỷ lệ review xấu không vượt mục tiêu T%?
 4. Nên ưu tiên đầu tư logistics cho bang hay danh mục nào?
+5. *Tối ưu:* với một ngân sách giới hạn, nên chọn những bang nào và giảm bao nhiêu % đơn trễ ở mỗi bang để tránh được nhiều review xấu nhất? Thứ tự ưu tiên đó có còn đúng khi giả định chi phí thay đổi không? **Đây là câu hỏi quyết định chính**, được trả lời ở §4.4.7.
 
 ## 1.2 Dữ liệu (Dataset)
 
@@ -143,11 +144,11 @@ Nhóm xây dựng một **data mart chủ đề Bán hàng & Giao hàng** theo *
 ```
 ┌─ Bottom tier ─────────────┐   ┌─ Middle tier ─────────────────────────┐   ┌─ Top tier ───────────┐
 │ 8 file CSV Olist          │──▶│ schema staging (bảng thô, toàn TEXT)  │   │ Streamlit            │
-│ (Extract: COPY)           │   │      │ Transform + Load (SQL)         │   │  Home   (KPI)        │
-│                           │   │      ▼                                │──▶│  OLAP   (5 phép)     │
+│ (kiểm tra hợp đồng nguồn, │   │      │ Transform + Load (SQL)         │   │  Home   (KPI)        │
+│  rồi Extract: COPY)       │   │      ▼                                │──▶│  OLAP   (5 phép)     │
 │                           │   │ schema dw (fact constellation)        │   │  Delivery            │
-│                           │   │ + materialized views (ROLAP)          │   │  DSS    (4 công cụ)  │
-│                           │   │ schema meta (etl_log = metadata)      │   │                      │
+│                           │   │ + materialized views (ROLAP)          │   │  DSS    (5 tab)      │
+│                           │   │ schema meta (etl_log, check_result)   │   │  Data Quality        │
 └───────────────────────────┘   └───────────────────────────────────────┘   └──────────────────────┘
 ```
 
@@ -158,6 +159,7 @@ Nhóm xây dựng một **data mart chủ đề Bán hàng & Giao hàng** theo *
 | Tính năng | Nơi hiện thực | Trả lời câu hỏi |
 |---|---|---|
 | ETL tự động CSV → staging → DW, ghi metadata | `src/etl/run_etl.py`, `src/sql/*.sql` | Nền tảng dữ liệu tích hợp |
+| Kiểm tra hợp đồng nguồn và 43 kiểm tra chất lượng sau mỗi lần nạp | `src/etl/contracts.py`, `src/sql/05_checks.sql`, trang **Data Quality** | Độ tin cậy của dữ liệu |
 | Dashboard KPI và xu hướng theo tháng | trang **Home** | Phân tích 1 |
 | OLAP Explorer: roll-up, drill-down, slice, dice, pivot trên 2 fact | trang **OLAP** | Phân tích 1, 2 |
 | Phân tích giao hàng và review theo mức trễ, bang, danh mục | trang **Delivery** | Phân tích 2, 3 |
@@ -165,6 +167,7 @@ Nhóm xây dựng một **data mart chủ đề Bán hàng & Giao hàng** theo *
 | Xếp hạng ưu tiên bang / danh mục và đề xuất hành động | trang **DSS**, tab 2 | Quyết định 4 |
 | What-if (2 biến quyết định) và sensitivity analysis | trang **DSS**, tab 3 | Quyết định 2 |
 | Goal seeking | trang **DSS**, tab 4 | Quyết định 3 |
+| Tối ưu phân bổ ngân sách (quy hoạch nguyên 0-1) và phân tích độ vững theo giả định chi phí | trang **DSS**, tab 5 | Quyết định 5 |
 
 ## 1.4 Công nghệ
 
@@ -173,6 +176,8 @@ Nhóm xây dựng một **data mart chủ đề Bán hàng & Giao hàng** theo *
 | CSDL / DW | PostgreSQL 16 | Partitioning, materialized view, `GROUP BY CUBE` |
 | ETL | Python 3.12 (psycopg2, SQLAlchemy) + SQL | Python điều phối, SQL biến đổi |
 | Mô hình DSS | scikit-learn 1.5, pandas | `DecisionTreeClassifier` (entropy) |
+| Tối ưu | SciPy (`milp`, solver HiGHS) | Giải chính xác bài toán phân bổ ngân sách |
+| Kiểm thử | pytest | 102 test: unit + kiểm tra trên CSDL thật |
 | Giao diện | Streamlit 1.39, Plotly | Web app nhiều trang |
 | Môi trường | micromamba (cục bộ trong project) | Cài Python + PostgreSQL mà không đụng hệ thống; cài bằng 1 lệnh |
 
@@ -284,15 +289,17 @@ Mọi dimension dùng **surrogate key** kiểu số nguyên tự tăng *(Kimball
 
 > **Lý thuyết (slide Ch.2).** *Extract* lấy dữ liệu mà không làm gián đoạn hệ thống nguồn. *Transform* gồm data cleansing, data mapping và business rules application. *Load* có thể nạp incremental hoặc full refresh. Dữ liệu đi qua **data staging area** (slide Ch.1).
 
-Toàn bộ ETL chạy bằng **1 lệnh**: `python src/etl/run_etl.py`, mất khoảng 5 giây.
+Toàn bộ ETL chạy bằng **1 lệnh**: `python src/etl/run_etl.py`, mất khoảng 12 giây (gồm cả bước kiểm tra hợp đồng nguồn và kiểm tra chất lượng).
 
 | Bước | File | Việc làm |
 |---|---|---|
+| 0. Kiểm tra nguồn | `contracts.py` | Đọc từng CSV bằng CSV parser trước khi nạp. Thiếu file hoặc header sai thì **dừng hẳn**, chưa động vào CSDL. Vi phạm về giá trị được ghi thành check (§2.5) |
 | 1. Extract | `01_staging.sql` + `run_etl.py` | Tạo schema `staging`, mỗi CSV một bảng, **mọi cột kiểu TEXT** (giữ nguyên nguồn); nạp hàng loạt bằng `COPY … FORMAT csv` |
 | 2. Tạo schema DW | `02_dw_schema.sql` | Xoá và tạo lại schema `dw`: 4 dimension, 2 fact, index, partition; tạo `meta.etl_log` nếu chưa có |
 | 3. Transform + Load | `03_transform_load.sql` | Làm sạch, ánh xạ, áp quy tắc nghiệp vụ, nạp vào dimension rồi fact |
 | 4. Tổng hợp sẵn | `04_olap_views.sql` | Tạo 3 materialized view |
-| 5. Metadata | `run_etl.py` | Ghi số dòng nguồn → đích của từng bảng vào `meta.etl_log`; commit 1 transaction (lỗi thì rollback toàn bộ) |
+| 5. Metadata | `run_etl.py` | Ghi số dòng nguồn → đích của từng bảng vào `meta.etl_log` |
+| 6. Kiểm tra chất lượng | `05_checks.sql` | Ghi 27 kiểm tra trên DW vào `meta.check_result` (§2.5). Cả 6 bước chạy trong **1 transaction**: lỗi thì rollback toàn bộ. Có check không đạt thì lệnh trả mã lỗi 1 |
 
 **Các quy tắc Transform** (đều nằm trong `03_transform_load.sql`):
 
@@ -315,6 +322,8 @@ Toàn bộ ETL chạy bằng **1 lệnh**: `python src/etl/run_etl.py`, mất kh
 | Index | Index trên các FK của 2 fact | Tăng tốc join / slice / dice |
 | Materialized views | `mv_monthly_kpi`, `mv_sales_cube`, `mv_delivery_by_state` | Tổng hợp sẵn (ROLAP, Section 3.1) |
 | Metadata (slide Ch.2-cont: “history of extracts”) | `meta.etl_log(run_id, step, table_name, source_rows, loaded_rows, note)` đặt ở schema riêng nên **không bị xoá** khi full refresh | Truy vết từng lần nạp |
+| Metadata chất lượng | `meta.check_result(run_id, category, check_name, expected, actual, passed)` | Lưu kết quả kiểm tra của từng lần nạp |
+| Lineage dữ liệu → mô hình | `models/metrics.json` lưu `etl_run_id` của lần ETL dùng để train | Trang Data Quality cảnh báo khi mô hình được train từ dữ liệu cũ |
 
 **Số dòng mỗi partition:**
 
@@ -366,7 +375,43 @@ Toàn bộ ETL chạy bằng **1 lệnh**: `python src/etl/run_etl.py`, mất kh
 | `SUM(price)` staging = `SUM(price)` `dw.fact_sales` | 13,591,643.70 = 13,591,643.70 ✅ |
 | `fact_delivery` = số đơn delivered − số đơn delivered thiếu ngày giao | 96,478 − 8 = 96,470 ✅ |
 | Chạy lại ETL lần 2 | Cùng số dòng; `etl_log` có thêm 1 lượt chạy ✅ |
-| Thời gian chạy | ~5 giây (4.6–4.9 s) |
+| Thời gian chạy | ~5 giây cho riêng phần nạp (4.6–4.9 s, đo ngày 02/11); ~12 giây khi gồm cả kiểm tra hợp đồng nguồn và kiểm tra chất lượng (12.3 s, đo ngày 14/11) |
+
+## 2.5 Kiểm soát chất lượng dữ liệu
+
+Mỗi lần chạy ETL đều tự kiểm tra lại dữ liệu và lưu kết quả vào `meta.check_result`. Nhờ vậy, người dùng dashboard và mô hình DSS biết dữ liệu có đáng tin hay không mà không cần kiểm tra tay.
+
+**Nguyên tắc.** Giá trị kỳ vọng của mỗi kiểm tra được **tính lại độc lập từ staging**, không dùng lại logic transform. Nếu tính kỳ vọng bằng chính logic transform thì một lỗi trong transform sẽ tự “khớp” với chính nó và không bị phát hiện.
+
+**Hai lớp kiểm tra:**
+
+| Lớp | File | Khi nào chạy | Nội dung |
+|---|---|---|---|
+| Hợp đồng nguồn (*source contract*) | `src/etl/contracts.py` | Trước khi nạp | Mỗi CSV phải có đúng header như mô tả; khoá có mặt và không trùng; số và thời gian đọc được; điểm review 1–5; bang là mã UF 2 chữ; zip đủ 5 chữ số |
+| Kiểm tra trên DW | `src/sql/05_checks.sql` | Sau khi nạp | Grain, đối chiếu staging ↔ DW, miền giá trị, độ phủ, tổng của materialized view |
+
+**Kết quả lần chạy 14/11/2026: 43/43 kiểm tra đạt.**
+
+| Nhóm | Số kiểm tra | Ví dụ |
+|---|---|---|
+| source | 16 | Mỗi file trong 8 CSV: không vi phạm hợp đồng; số dòng CSV = số dòng staging |
+| grain | 3 | Không trùng `(order_id, order_item_id)` trong `fact_sales`; không trùng `order_id` trong `fact_delivery`; không trùng `customer_unique_id` |
+| reconciliation | 10 | Số dòng, `SUM(price)`, `SUM(freight_value)` giữa staging và `fact_sales`; số đơn trễ; số đơn có review |
+| domain | 7 | `review_score` trong 1..5; `is_bad_review` nhất quán với điểm ≤ 2; `delay_days = delivery_days − estimated_days`; `total_value = price + freight_value` |
+| coverage | 3 | Mọi ngày mua / giao nằm trong `dim_date`; mọi danh mục có tên tiếng Anh; mọi bang có vùng |
+| aggregate | 4 | Tổng của `mv_sales_cube`, `mv_monthly_kpi`, `mv_delivery_by_state` khớp với fact; các tỷ lệ nằm trong [0, 1] |
+| **Tổng** | **43** | |
+
+**Trang Data Quality** trên dashboard hiển thị:
+- kết quả kiểm tra theo nhóm;
+- số dòng qua từng bước CSV → staging → dw;
+- lịch sử các lần chạy;
+- các quy tắc làm sạch đang áp dụng;
+- mô hình DSS đang dùng được train từ lần ETL nào.
+
+[HÌNH] Trang Data Quality.
+
+**Kiểm thử tự động.** Thư mục `tests/` có 102 test (pytest), gồm unit test và test chạy trên CSDL thật. Với mỗi quy tắc nghiệp vụ, `tests/test_etl_checks.py` cố tình làm hỏng dữ liệu để xác nhận kiểm tra tương ứng báo lỗi. Lần chạy 14/11: **100 test đạt, 2 test bỏ qua**. Một test cần ETL chạy 2 lần; test còn lại chỉ chạy trong môi trường Docker.
 
 ---
 
@@ -721,7 +766,7 @@ Dashboard chỉ vẽ giai đoạn 2017-01 → 2018-08, vì các tháng ở hai �
 
 **Phân loại (slide Ch.4):** **Hybrid DSS**, gồm hai phần:
 - **data-driven:** truy vấn và OLAP trên kho dữ liệu;
-- **model-driven:** cây quyết định cùng các phân tích what-if, sensitivity, goal seeking.
+- **model-driven:** cây quyết định cùng các phân tích what-if, sensitivity, goal seeking, và mô hình tối ưu (mathematical programming) để phân bổ ngân sách.
 
 Theo phân loại của Holsapple & Whinston (slide Ch.6), đây là dạng *compound DSS*, kết hợp database-oriented và solver-oriented.
 
@@ -730,8 +775,8 @@ Theo phân loại của Holsapple & Whinston (slide Ch.6), đây là dạng *com
 | Subsystem | Hiện thực trong project |
 |---|---|
 | Data management | Kho dữ liệu PostgreSQL (schema `dw`): `fact_delivery` cùng các dimension, nạp bằng ETL (Section 2) |
-| Model management | `src/dss/train_model.py` (cây quyết định, model base lưu ở `models/`) · `src/dss/whatif.py` (what-if, sensitivity, goal seeking, xếp hạng) |
-| User interface (dialog) | Trang DSS trên Streamlit, gồm 4 tab: chọn phạm vi, kéo thanh trượt, nhập mục tiêu, xem bảng và biểu đồ |
+| Model management | `src/dss/train_model.py` (cây quyết định, model base lưu ở `models/`) · `src/dss/whatif.py` (what-if, sensitivity, goal seeking, xếp hạng) · `src/dss/optimizer.py` (tối ưu ngân sách, phân tích độ vững) · `config/cost_assumptions.csv` (giả định chi phí) |
+| User interface (dialog) | Trang DSS trên Streamlit, gồm 5 tab: chọn phạm vi, kéo thanh trượt, nhập mục tiêu, nhập ngân sách và giả định, xem bảng và biểu đồ |
 | Knowledge-based (tuỳ chọn) | Tập luật IF-THEN rút ra từ cây quyết định, dùng để giải thích cho người quản lý |
 
 **Vai trò của DW trong DSS** (L.O.1.2): DW là *data management subsystem*. Nó cung cấp dữ liệu đã tích hợp và làm sạch, đúng grain (đơn hàng), cho cả phần OLAP (data-driven) lẫn mô hình (model-driven). Nếu không có bước chuẩn hoá ở DW, mô hình sẽ bị sai vì review trùng, đơn nhiều item, hoặc thiếu ngày giao.
@@ -742,11 +787,11 @@ Theo phân loại của Holsapple & Whinston (slide Ch.6), đây là dạng *com
 |---|---|---|---|
 | Intelligence | Có vấn đề gì? Ở đâu? | Home, OLAP, Delivery | Giao trễ → review xấu; Northeast và RJ trễ nhiều; đỉnh 11/2017 và 02–03/2018 |
 | Design | Mô hình hoá vấn đề, liệt kê phương án | DSS tab 1: cây quyết định và luật | Các nhóm đơn rủi ro cao; biến quyết định = mức giảm trễ, số ngày rút ngắn |
-| Choice | Chọn phương án | DSS tab 2–4: xếp hạng, what-if, sensitivity, goal seeking | Ưu tiên SP / RJ; cần giảm 58% đơn trễ để đạt 11% |
-| Implementation | Hành động gì? | Khung “Đề xuất” tự sinh ở tab 2 | Đổi / thêm đơn vị vận chuyển, nới ngày giao dự kiến cho sát thực tế |
-| Evaluation | Mô hình tin được đến đâu? | Metrics, confusion matrix (tab 1) | Section 4.2.4 và Section 5 |
+| Choice | Chọn phương án | DSS tab 2–5: xếp hạng, what-if, sensitivity, goal seeking, tối ưu ngân sách | Ưu tiên RJ, GO, PR, RN ở mọi bộ giả định chi phí; cần giảm 58% đơn trễ để đạt 11% |
+| Implementation | Hành động gì? | Khung “Đề xuất” tự sinh ở tab 2 và tab 5 | Phân bổ ngân sách theo bang, đổi / thêm đơn vị vận chuyển, nới ngày giao dự kiến cho sát thực tế |
+| Evaluation | Mô hình tin được đến đâu? | Metrics, confusion matrix, thực nghiệm chọn tham số, kiểm tra trên tập test (tab 1); độ nhạy theo giả định chi phí (tab 5) | Section 4.2.4, 4.3, 4.4.7 và Section 5 |
 
-[HÌNH] 4 tab của trang DSS.
+[HÌNH] 5 tab của trang DSS.
 
 ## 4.2 Mô hình cây quyết định
 
@@ -781,6 +826,25 @@ Thuật toán là cây quyết định với tiêu chí **entropy / information 
 | random_state | 42 | Tái lập kết quả |
 
 Cây thu được có **độ sâu 4 và 15 lá**.
+
+**Thực nghiệm chọn tham số.** Nhóm so sánh 12 cấu hình `max_depth` ∈ {3, 4, 5, 6} × `min_samples_leaf` ∈ {100, 200, 500} bằng **cross-validation 5-fold (stratified) trên tập train**. Tập test không được dùng ở bước này, để nó vẫn là phép kiểm tra cuối cùng khách quan. Cây được dùng theo hai cách, nên nhóm đo hai loại chỉ số:
+- chỉ số **phân loại** (accuracy, precision, recall, F1 của lớp review xấu);
+- chỉ số **chất lượng xác suất**, vì what-if dùng tỷ lệ của lá làm xác suất: AUC (càng cao càng tốt) và Brier score (càng thấp càng tốt).
+
+| max_depth | min_samples_leaf | Số lá | Accuracy | Precision | Recall | F1 | AUC | Brier |
+|---|---|---|---|---|---|---|---|---|
+| 3 | 100 / 200 / 500 | 8 | 83.76% | 39.99% | 50.73% | 0.445 | 0.7307 | 0.0876–0.0878 |
+| **4** | **200** | **15** | **80.69%** | **34.43%** | **56.04%** | **0.426** | **0.7408** | **0.0874** |
+| 4 | 100 / 500 | 15 / 14 | 80.69% | 34.43% | 56.04% | 0.426 | 0.7407–0.7408 | 0.0874–0.0876 |
+| 5 | 100 / 200 / 500 | 26 / 24 / 21 | 81.15–81.27% | 35.29–35.46% | 54.87–55.06% | 0.429–0.430 | 0.7435–0.7436 | 0.0872–0.0874 |
+| 6 | 100 / 200 / 500 | 44 / 39 / 31 | 82.16–82.20% | 36.80–36.85% | 53.78–54.07% | 0.437–0.438 | 0.7455–0.7456 | 0.0871–0.0873 |
+
+*(nguồn: `models/experiments.json`; trung bình 5 fold)*
+
+**Lý do giữ depth 4 / leaf 200:**
+- Depth 3 có F1 cao nhất nhưng AUC thấp nhất. Cây chỉ có 8 lá thì phân nhóm rủi ro quá thô cho what-if.
+- Depth 5–6 chỉ tăng AUC thêm khoảng 0.003–0.005 nhưng số lá tăng gấp 2–3 lần, nên khó giải thích bằng luật IF-THEN hơn.
+- Với depth 4, `min_samples_leaf` gần như không đổi kết quả. Chọn 200 để mỗi lá đủ lớn.
 
 ### 4.2.3 Ví dụ tính information gain (theo công thức slide Ch.5)
 
@@ -878,6 +942,10 @@ P = tỷ lệ review xấu thực tế của nhóm trên tập train; n = số �
 **Mô hình under risk (slide Ch.7).** Mỗi đơn được gán một **xác suất** bị review xấu, bằng tỷ lệ review xấu thực tế của lá mà đơn rơi vào (`leaf_rate`). Tỷ lệ review xấu kỳ vọng của một nhóm là trung bình các xác suất đó.
 - Không dùng `predict_proba`, vì `class_weight = balanced` làm lệch xác suất.
 - Kiểm tra độ khớp: tỷ lệ kỳ vọng do mô hình ước lượng là **12.85%**, tỷ lệ thực tế là **12.81%**.
+- **Kiểm tra trên tập test** (19,165 đơn mà mô hình chưa thấy khi train):
+  - Số review xấu kỳ vọng tính theo `leaf_rate` của tập train là **2,497.6**, số thực tế là **2,454** (lệch 1.8%).
+  - So từng lá, tỷ lệ trên tập test lệch trung bình (có trọng số theo số đơn) **0.6 điểm %** so với tập train.
+  - Kết luận: xác suất theo lá không bị overfit và dùng được cho what-if. Số liệu nằm ở `leaf_check` trong `models/metrics.json`.
 
 | Loại biến (slide Ch.7) | Trong mô hình |
 |---|---|
@@ -1017,12 +1085,96 @@ Với mỗi nhóm, hệ thống giả sử **toàn bộ đơn trễ** trong nhó
 | 9 | auto | 3,774 | 7.23% | 12.80% | 131 | 64,106 | 3.47 điểm % |
 | 10 | toys | 3,757 | 6.18% | 11.31% | 117 | 30,243 | 3.12 điểm % |
 
-### 4.4.7 Đề xuất cho nhà quản lý (Implementation)
+**Hạn chế của xếp hạng này:** mọi nhóm đều được giả định sửa *toàn bộ* đơn trễ, và chưa tính chi phí. Vì vậy bảng chỉ cho biết tiềm năng của mỗi nhóm, chưa trả lời được câu hỏi “ngân sách có hạn thì chọn đâu”. Câu hỏi đó được giải ở §4.4.7.
 
-1. **Ưu tiên RJ.**
-   - SP đứng đầu về số tuyệt đối (805), nhưng chủ yếu do quy mô: SP có 40k đơn.
-   - RJ tránh được gần bằng (769) với số đơn chỉ bằng khoảng 30% SP. Mức giảm tỷ lệ review xấu trong bang (6.3 điểm %) cao gấp khoảng 3 lần SP.
+### 4.4.7 Tối ưu phân bổ ngân sách (Choice — mathematical programming)
+
+**Câu hỏi quyết định chính:** với ngân sách giới hạn, nên giảm đơn trễ ở những bang nào và giảm bao nhiêu, để tránh được nhiều review xấu nhất? Thứ tự ưu tiên có còn đúng khi giả định chi phí thay đổi không?
+
+**Mô hình** (slide Ch.7: *mathematical programming*, dạng bài toán cái túi nhiều lựa chọn, quy hoạch nguyên 0-1):
+
+| Thành phần | Trong mô hình |
+|---|---|
+| Decision variables | x[s, r] = 1 nếu bang s được giảm r% đơn trễ, với r ∈ {25, 50, 75, 100}% |
+| Result variable (hàm mục tiêu) | Tối đa hoá số review xấu tránh được: Σ benefit[s, r] · x[s, r] |
+| Ràng buộc | Mỗi bang chọn tối đa 1 mức · tổng chi phí ≤ ngân sách · (tuỳ chọn) số bang tối đa K, thể hiện năng lực quản lý |
+| benefit[s, r] | Tính bằng mô hình what-if (§4.3) cho từng bang và từng mức. Đơn ở các bang khác nhau là tách biệt, nên lợi ích cộng dồn được chính xác |
+| Phạm vi | 24 bang có ≥ 100 đơn có review, 4 mức, tổng 96 phương án |
+
+**Chi phí** (BRL) = phí ship thực tế của các đơn trễ được sửa × `surcharge` × `tier[r]`.
+- Phí ship lấy **từ DW**, nên chênh lệch chi phí giữa các bang là thật. Ví dụ, phí ship trung bình một đơn ở vùng Southeast là 19.84 BRL, ở vùng North là 41.35 BRL.
+- `surcharge` = 0.5 và `tier` = 1 / 1.2 / 1.5 / 2 (càng sửa sâu càng đắt) là **giả định**, vì Olist không công bố chi phí cải thiện giao hàng. Hai tham số này nằm ở `config/cost_assumptions.csv`.
+- Nhóm đã kiểm tra trên dữ liệu: so trong cùng tuyến và cùng nhóm cân nặng, đơn trả phí ship cao hơn **không** giao nhanh hơn. Vì vậy phí ship chỉ được dùng làm thước đo “logistics ở bang đó đắt hay rẻ”, không phải cơ chế làm đơn nhanh hơn (chi tiết ở `config/README.md`).
+- `surcharge` nhân đều mọi chi phí nên **không làm đổi phương án**, chỉ đổi thang đo của ngân sách. Đã kiểm chứng: surcharge 0.5 với ngân sách 30,000 BRL cho đúng cùng phương án như surcharge 1.0 với 60,000 BRL.
+
+**Thuật toán:**
+- Giải **chính xác** bằng MILP (SciPy `milp`, solver HiGHS), mỗi lần giải mất khoảng 0.03–0.06 giây.
+- Có thêm thuật toán **greedy** (chọn dần bước nâng cấp có lợi ích / chi phí cao nhất) làm baseline, để thấy tối ưu chính xác thêm được bao nhiêu.
+
+**Phương án tối ưu với giả định mặc định:**
+
+| Ngân sách (BRL) | Số bang | Đơn trễ được sửa | Review xấu tránh được | Tỷ lệ review xấu kỳ vọng toàn quốc | Greedy | Greedy kém hơn |
+|---|---|---|---|---|---|---|
+| 5,000 | 2 | — | 226.1 | — | 225.6 | 0.24% |
+| 10,000 | 5 | 899 | 448.2 | 12.85% → 12.38% | 446.6 | 0.36% |
+| 20,000 | 12 | 1,698 | 817.5 | 12.85% → 12.00% | 817.5 | 0.00% |
+| 40,000 | 19 | 2,893 | 1,410.9 | 12.85% → 11.38% | 1,405.1 | 0.41% |
+| 80,000 | 22 | — | 2,194.7 | — | 2,194.3 | 0.02% |
+| 160,000 | 24 | — | 3,079.8 | — | 3,078.2 | 0.05% |
+
+*(biểu đồ: đường cong ngân sách – lợi ích, có thêm đường greedy)*
+
+**Nhận xét:**
+- Lợi ích **giảm dần theo ngân sách** (diminishing returns). 10,000 BRL đầu tiên tránh được 448 review xấu. Tăng ngân sách từ 80,000 lên 160,000 BRL chỉ tránh thêm 885 review.
+- Sửa toàn bộ đơn trễ ở cả 24 bang tốn khoảng 160,000 BRL và tránh được khoảng 3,080 review xấu.
+- Greedy kém tối ưu tối đa 0.41%. Với dữ liệu này, heuristic đơn giản đã khá tốt. MILP vẫn được dùng vì nó chắc chắn cho kết quả tối ưu và chạy đủ nhanh.
+
+Ví dụ khung đề xuất tự sinh ở tab 5 với ngân sách 40,000 BRL:
+> Giảm 50% đơn trễ ở RJ, SP, MG, BA, RS, SC, ES, PR, GO, DF, PI, MS; giảm 25% đơn trễ ở CE, PE, PA, MT, AL, SE, TO (tổng chi phí 39,966 BRL, 2,893 đơn trễ được xử lý). Dự kiến tránh được khoảng 1,411 review xấu; tỷ lệ review xấu kỳ vọng toàn quốc giảm từ 12.85% xuống 11.38%.
+
+**Độ nhạy theo giả định `tier`** (ngân sách 40,000 BRL):
+
+| Kịch bản tier | Hệ số 25 / 50 / 75 / 100% | Review xấu tránh được | Số bang | Đơn trễ được sửa | Dạng phương án |
+|---|---|---|---|---|---|
+| Phẳng | 1 / 1 / 1 / 1 | 1,818.4 | 8 | 3,737 | Sửa sâu ở ít bang: SP 100%, RJ 100%, ES / GO / PR / RO / RS 50%, SC 25% |
+| Mặc định | 1 / 1.2 / 1.5 / 2 | 1,410.9 | 19 | 2,893 | Phần lớn các bang giảm 25–50% |
+| Dốc | 1 / 1.5 / 2.25 / 3.5 | 1,240.6 | 20 | 2,525 | Sửa nhẹ ở nhiều bang, đa số chỉ 25% |
+
+→ `tier` quyết định nên **sửa sâu ở ít bang hay sửa nhẹ ở nhiều bang**. Đây là giả định có ảnh hưởng lớn nhất, nên cần thay bằng báo giá thật của hãng vận chuyển trước khi thực hiện.
+
+**Phân tích độ vững (robustness) — câu trả lời chính của DSS.** Vì chi phí là giả định, nhóm giải lại bài toán dưới **6 bộ giả định**:
+- 2 cách tính chi phí:
+  - theo phí ship thật của từng bang;
+  - đồng đều: mọi đơn trễ cùng một giá, bằng phí ship trung bình toàn quốc của một đơn trễ, tức là bỏ hẳn yếu tố phí ship;
+- × 3 kịch bản tier: phẳng / mặc định / dốc;
+- mỗi bộ giải ở 3 mức ngân sách (10,000 / 20,000 / 40,000 BRL), tổng 18 lần giải.
+
+Một bang thuộc **ưu tiên k** nếu ở mức ngân sách thứ k nó đã được chọn trong **ít nhất 4/6 bộ giả định**.
+
+| Ưu tiên | Từ ngân sách | Bang (số bộ giả định chọn bang ở mức 10k / 20k / 40k, trên 6) |
+|---|---|---|
+| **1** | 10,000 BRL | **RJ** (5/5/6), **GO** (4/5/6), **PR** (4/4/6), **RN** (5/4/4) |
+| 2 | 20,000 BRL | RS, ES, SP, SE, PA, SC, AL, TO, MT, DF, MG |
+| 3 | 40,000 BRL | BA, PI, MS, PE, CE |
+| Ít khi được chọn | — | RO, PB, MA, AM |
+
+*(nguồn: `optimizer.robustness()`, tab 5 trang DSS)*
+
+**Diễn giải:**
+- **RJ là kết luận vững nhất.** RJ được chọn ở 16/18 lần giải. Điều này khớp với xếp hạng ở §4.4.6: RJ có tỷ lệ trễ cao (11.93%) trên một lượng đơn lớn.
+- **SP không thuộc ưu tiên 1, dù đứng đầu về số tuyệt đối.** Ở 10,000 BRL, SP được chọn ở cả 3 bộ giả định tính theo phí ship thật, nhưng không được chọn ở bộ nào tính theo chi phí đồng đều. Như vậy vị trí của SP phụ thuộc vào giả định chi phí, và SP chỉ chắc chắn được chọn từ 20,000 BRL.
+- **Mức giảm cụ thể ở mỗi bang phụ thuộc giả định.** Ví dụ, RJ dao động từ 25% đến 100%. Vì vậy hệ thống chỉ báo mức giảm dưới dạng khoảng, còn **thứ tự ưu tiên** mới là kết luận dùng được.
+
+[HÌNH] Tab 5 trang DSS: bảng ưu tiên vững, phương án chi tiết, đường cong ngân sách.
+
+### 4.4.8 Đề xuất cho nhà quản lý (Implementation)
+
+1. **Ưu tiên RJ, sau đó GO, PR, RN.**
+   - Đây là các bang được chọn ngay ở ngân sách nhỏ nhất (10,000 BRL) trong ít nhất 4/6 bộ giả định chi phí (§4.4.7).
+   - Với RJ, xếp hạng theo tiềm năng (§4.4.6) cho cùng kết luận. RJ tránh được 769 review xấu, gần bằng SP (805), dù số đơn chỉ bằng khoảng 30% SP. Mức giảm tỷ lệ review xấu trong bang (6.3 điểm %) cao gấp khoảng 3 lần SP.
+   - SP chỉ nên đưa vào khi ngân sách từ khoảng 20,000 BRL, vì vị trí của SP phụ thuộc giả định chi phí.
    - Hành động: đánh giá lại đơn vị vận chuyển tuyến vào RJ, hoặc thêm đơn vị vận chuyển cho tuyến này.
+   - Trước khi giải ngân: thay `surcharge` và `tier` bằng báo giá thật của hãng vận chuyển, rồi chạy lại tab 5.
 2. **Nhóm Northeast (BA, CE, AL, MA, SE…)** có tỷ lệ trễ 12–21%. Nên **nới ngày giao dự kiến** cho sát thời gian thực tế (ngày giao TB 19–25 ngày). Khi ngày dự kiến sát thực tế, một phần đơn sẽ không còn bị tính là trễ.
 3. **Đơn nhiều người bán** có 45–54% review xấu dù đúng hạn. Nên gom hàng và giao một lần, hoặc thông báo rõ cho khách là đơn sẽ về thành nhiều đợt.
 4. **Mục tiêu khả thi:** muốn đưa tỷ lệ review xấu toàn quốc về ≤ 11%, cần giảm 58% số đơn trễ (tỷ lệ trễ 6.7% → 2.8%). Mức dưới 9.6% không thể đạt được chỉ bằng cải thiện giao hàng.
@@ -1038,10 +1190,10 @@ Với mỗi nhóm, hệ thống giả sử **toàn bộ đơn trễ** trong nhó
 | # | Yêu cầu | Đáp ứng | Section |
 |---|---|---|---|
 | 1 | Phân tích yêu cầu nghiệp vụ, xác định bài toán | Bài toán giao trễ → review xấu; câu hỏi phân tích và câu hỏi quyết định; data profiling | 1.1, 1.2 |
-| 2 | Thiết kế DW đa chiều (star / snowflake) + ETL | Fact constellation (2 fact dạng star dùng chung 4 dimension), grain, hierarchy; ETL 3 bước + metadata | 2.1–2.3 |
-| 3 | Hiện thực backend (CSDL, ETL, OLAP) + frontend | PostgreSQL, ETL tự động, ROLAP + materialized views; dashboard Streamlit 4 trang | 2.4, 3 |
-| 4 | Phát triển thành phần DSS dựa trên DW | Hybrid DSS: cây quyết định, what-if, sensitivity, goal seeking, xếp hạng, đề xuất | 4 |
-| 5 | Đánh giá kết quả, hạn chế, hướng phát triển | Kiểm tra ETL, metrics mô hình, hạn chế, hướng phát triển | 2.4, 4.2.4, 5.2–5.3 |
+| 2 | Thiết kế DW đa chiều (star / snowflake) + ETL | Fact constellation (2 fact dạng star dùng chung 4 dimension), grain, hierarchy; ETL 3 bước + metadata; hợp đồng nguồn và kiểm tra chất lượng | 2.1–2.3, 2.5 |
+| 3 | Hiện thực backend (CSDL, ETL, OLAP) + frontend | PostgreSQL, ETL tự động, ROLAP + materialized views; dashboard Streamlit 5 trang (Home, OLAP, Delivery, DSS, Data Quality) | 2.4, 2.5, 3 |
+| 4 | Phát triển thành phần DSS dựa trên DW | Hybrid DSS: cây quyết định, what-if, sensitivity, goal seeking, xếp hạng, tối ưu ngân sách (MILP) và phân tích độ vững, đề xuất | 4 |
+| 5 | Đánh giá kết quả, hạn chế, hướng phát triển | 43 kiểm tra chất lượng, 102 test tự động, metrics mô hình, cross-validation chọn tham số, kiểm tra mô hình rủi ro trên tập test, độ nhạy theo giả định chi phí, hạn chế, hướng phát triển | 2.4–2.5, 4.2, 4.3, 4.4.7, 5.2–5.3 |
 | 6 | Trình bày trước lớp / video | Slide và video | [TODO] |
 
 **Chuẩn đầu ra (§1.2):**
@@ -1052,11 +1204,11 @@ Với mỗi nhóm, hệ thống giả sử **toàn bộ đơn trễ** trong nhó
 | 1.2 | Vai trò của DW trong DSS | 4.1 |
 | 1.3 | Ví dụ thực tế DW & DSS | 5.4 + chính project này |
 | 2.1 | Quy trình, nguyên lý thiết kế DW | 2.1 |
-| 2.2 | Các vấn đề trong thiết kế DW | 1.2 (chất lượng dữ liệu), 2.1.3 (granularity), 2.3 (partition, index, metadata) |
+| 2.2 | Các vấn đề trong thiết kế DW | 1.2 (chất lượng dữ liệu), 2.1.3 (granularity), 2.3 (partition, index, metadata), 2.5 (kiểm soát chất lượng) |
 | 2.3 | Thiết kế và hiện thực hệ thống DW | 2, 3 |
 | 3.1 | Khái niệm, đặc tính MSS & DSS | 4 (khung lý thuyết), 4.1 |
 | 3.2 | Các giai đoạn ra quyết định | 4.1 (ánh xạ pha Simon) |
-| 3.3 | Minh hoạ mô hình hoá trong DSS | 4.2–4.4 |
+| 3.3 | Minh hoạ mô hình hoá trong DSS | 4.2–4.4 (gồm mô hình tối ưu ở 4.4.7) |
 | 4.1 | Nguyên tắc phân tích, thiết kế DSS | 4.1, 1.4 (prototyping) |
 | 4.2 | Phân tích, thiết kế, hiện thực DSS đơn giản | 4 |
 
@@ -1078,7 +1230,8 @@ Với mỗi nhóm, hệ thống giả sử **toàn bộ đơn trễ** trong nhó
 | 97% khách chỉ mua 1 lần (2,997 / 96,096 khách mua > 1 lần) | Không phân tích được hành vi mua lặp |
 | Review xấu còn nhiều nguyên nhân ngoài giao hàng | Precision của mô hình thấp (32.9%) |
 | What-if giả định giao trễ là **nguyên nhân** của review xấu (mô hình dựa trên tương quan) | Kết quả là ước lượng, cần kiểm chứng bằng thử nghiệm thực tế |
-| “Sửa đơn trễ” được giả định là giao đúng ngày dự kiến; chưa tính chi phí để đạt được | Chưa so sánh được lợi ích với chi phí |
+| “Sửa đơn trễ” được giả định là giao đúng ngày dự kiến | Chưa mô hình hoá được cách sửa cụ thể (đổi hãng, thêm kho…) |
+| Chi phí trong tối ưu ngân sách dựa trên 2 giả định (`surcharge`, `tier`), vì Olist không có dữ liệu chi phí can thiệp | Mức giảm cụ thể ở mỗi bang phụ thuộc giả định; chỉ thứ tự ưu tiên là vững (§4.4.7) |
 | ETL dạng full refresh, chưa incremental | Chưa phù hợp với dữ liệu phát sinh liên tục |
 | Chưa dùng SCD (khách đổi địa chỉ chỉ giữ địa chỉ của đơn gần nhất) | Mất lịch sử thay đổi địa chỉ |
 | Chưa dùng geolocation, chưa có bản đồ | Chưa phân tích được theo khoảng cách địa lý |
@@ -1088,7 +1241,7 @@ Với mỗi nhóm, hệ thống giả sử **toàn bộ đơn trễ** trong nhó
 
 1. **Incremental ETL** (nạp theo ngày, dùng `etl_log` để biết lần nạp gần nhất) và **SCD type 2** cho dim_customer / dim_seller.
 2. **Bản đồ địa lý** từ bảng geolocation (lấy toạ độ trung bình theo zip); thêm thuộc tính khoảng cách người bán – khách.
-3. **Thêm thông tin chi phí** để tối ưu theo lợi ích / chi phí: mô hình **quy hoạch tuyến tính (LP)** chọn đơn vị vận chuyển cho từng tuyến dưới ràng buộc ngân sách (slide Ch.7: mathematical programming).
+3. **Thay giả định chi phí bằng dữ liệu thật** (báo giá của hãng vận chuyển theo tuyến). Khi đó có thể mở rộng mô hình tối ưu ở §4.4.7 từ chọn bang sang **chọn đơn vị vận chuyển cho từng tuyến** (người bán → người mua).
 4. **Dự báo nhu cầu** theo tháng để chuẩn bị năng lực vận chuyển cho các đợt cao điểm như Black Friday (11/2017).
 5. Dùng **comment review** (văn bản) để tách các nguyên nhân review xấu không liên quan đến giao hàng.
 
@@ -1104,12 +1257,12 @@ Liên hệ với project: Olist là trường hợp thực tế, gồm DW tích 
 ## 5.5 Kết luận
 
 Nhóm đã xây dựng hoàn chỉnh một hệ thống gồm:
-1. **Kho dữ liệu** dạng fact constellation trên dữ liệu thật khoảng 100k đơn hàng, cùng quy trình ETL tự động có kiểm tra và metadata.
-2. **Dashboard OLAP** minh hoạ đủ 5 phép toán trên 2 fact dùng chung dimension.
+1. **Kho dữ liệu** dạng fact constellation trên dữ liệu thật khoảng 100k đơn hàng. Quy trình ETL tự động có metadata, hợp đồng nguồn và 43 kiểm tra chất lượng sau mỗi lần nạp.
+2. **Dashboard OLAP** minh hoạ đủ 5 phép toán trên 2 fact dùng chung dimension, cùng trang theo dõi chất lượng dữ liệu.
 3. **DSS** kết hợp dữ liệu và mô hình. DSS chỉ ra được:
    - giao trễ là yếu tố quyết định review xấu (trễ trên 5 ngày → khoảng 80% review xấu);
    - đơn nhiều người bán là nguồn rủi ro thứ hai;
-   - nên ưu tiên RJ và khu vực Northeast;
+   - với ngân sách giới hạn, nên ưu tiên **RJ, GO, PR, RN**. Thứ tự này đúng trong ít nhất 4/6 bộ giả định chi phí. Ngân sách 40,000 BRL (giả định mặc định) đưa tỷ lệ review xấu kỳ vọng từ 12.85% xuống 11.38%;
    - muốn tỷ lệ review xấu ≤ 11% cần giảm 58% đơn trễ, còn dưới 9.6% thì logistics không giải quyết được.
 
 Hệ thống đi đủ các pha ra quyết định của Simon, từ phát hiện vấn đề (intelligence) đến đề xuất hành động (implementation) và đánh giá (evaluation).
@@ -1144,9 +1297,10 @@ git clone https://github.com/taita2005/co4031-olist-dw-dss.git BTL && cd BTL
 bash scripts/setup_env.sh        # cài môi trường cục bộ (~3–5 phút, chỉ lần đầu)
 source scripts/env.sh
 bash scripts/db_start.sh         # PostgreSQL cục bộ, port 5433
-python src/etl/run_etl.py        # ETL (~5 giây)
-python src/dss/train_model.py    # huấn luyện mô hình (~2 giây)
+python src/etl/run_etl.py        # ETL + 43 kiểm tra chất lượng (~12 giây)
+python src/dss/train_model.py    # huấn luyện mô hình, thực nghiệm tham số, tính trước phương án tối ưu (~25 giây)
 streamlit run src/app/Home.py    # http://localhost:8501
+python -m pytest tests -q        # 102 test tự động
 bash scripts/db_stop.sh          # tắt PostgreSQL khi xong
 ```
 
@@ -1161,11 +1315,18 @@ bash scripts/db_stop.sh          # tắt PostgreSQL khi xong
 | `src/sql/02_dw_schema.sql` | Tạo dimension, fact, index, partition, `meta.etl_log` |
 | `src/sql/03_transform_load.sql` | Toàn bộ logic Transform + Load |
 | `src/sql/04_olap_views.sql` | Materialized views |
-| `src/etl/run_etl.py` | Điều phối ETL và ghi metadata |
-| `src/dss/train_model.py` | Huấn luyện cây quyết định, trích luật, tính information gain |
+| `src/sql/05_checks.sql` | 27 kiểm tra chất lượng trên DW → `meta.check_result` |
+| `src/sql/06_bi_views.sql` | View `bi` cho Metabase (phần mở rộng tuỳ chọn), chỉ trả dữ liệu khi mọi kiểm tra đạt |
+| `src/etl/contracts.py` | Hợp đồng nguồn: kiểm tra từng CSV trước khi nạp |
+| `src/etl/run_etl.py` | Điều phối ETL, ghi metadata và kết quả kiểm tra |
+| `src/dss/train_model.py` | Huấn luyện cây quyết định, trích luật, tính information gain, thực nghiệm tham số, tính trước lợi ích cho tối ưu |
 | `src/dss/whatif.py` | What-if, sensitivity, goal seeking, xếp hạng |
-| `src/app/Home.py`, `src/app/pages/*.py` | 4 trang dashboard |
-| `models/` | (sinh ra) model, luật, metrics |
+| `src/dss/optimizer.py` | Tối ưu ngân sách (MILP + greedy baseline), độ nhạy theo tier, phân tích độ vững |
+| `config/cost_assumptions.csv` | 2 giả định chi phí (`surcharge`, `tier`), kèm giải thích ở `config/README.md` |
+| `src/app/Home.py`, `src/app/pages/*.py` | 5 trang dashboard |
+| `tests/` | 102 test (pytest) |
+| `models/` | (sinh ra) model, luật, metrics, `experiments.json`, `options.csv` |
+| `compose.yml`, `docs/metabase.md` | Tuỳ chọn: chạy toàn bộ stack bằng Docker Compose, kèm 3 dashboard Metabase (không dùng cho số liệu trong báo cáo này) |
 
 ## C. Danh sách hình cần chụp cho báo cáo và slide
 
@@ -1182,6 +1343,10 @@ bash scripts/db_stop.sh          # tắt PostgreSQL khi xong
 | 13 | Trang Delivery | 3.3.3–3.3.5 |
 | 14–17 | DSS: 4 tab (mô hình, xếp hạng, what-if + sensitivity, goal seeking) | 4 |
 | 18 | Goal seeking trường hợp không khả thi (mục tiêu 9.5%) | 4.4.5 |
+| 19 | DSS tab 5: bảng ưu tiên vững qua 6 bộ giả định | 4.4.7 |
+| 20 | DSS tab 5: phương án chi tiết 40,000 BRL + đường cong ngân sách – lợi ích | 4.4.7 |
+| 21 | DSS tab 1: bảng thực nghiệm chọn tham số | 4.2.2 |
+| 22 | Trang Data Quality | 2.5 |
 
 ## D. Thay đổi so với proposal ban đầu
 
@@ -1192,7 +1357,8 @@ Xem bảng “Thay đổi so với bản đề xuất ban đầu” trong `docs/
 - đã làm partition;
 - xác suất lấy theo lá của cây;
 - goal seeking dùng complete enumeration;
-- phân công đổi thành 1 người code, 2 người review.
+- phân công đổi thành 1 người code, 2 người review;
+- bổ sung sau proposal: hợp đồng nguồn và kiểm tra chất lượng tự động, trang Data Quality, thực nghiệm chọn tham số bằng cross-validation, tối ưu ngân sách (MILP) cùng phân tích độ vững, và phần mở rộng Docker Compose + Metabase.
 
 ## E. Gợi ý chia slide (15 phút)
 
@@ -1201,4 +1367,4 @@ Xem bảng “Thay đổi so với bản đề xuất ban đầu” trong `docs/
 | Section 1 | A | Bài toán, dữ liệu, kiến trúc, tính năng | ~3 phút |
 | Section 2 | A | Schema, grain, ETL, kết quả ETL | ~3 phút |
 | Section 3 | B | Demo OLAP 5 phép toán, insight Delivery | ~4 phút |
-| Section 4–5 | C | Cây quyết định, what-if, goal seeking, xếp hạng, đề xuất, đánh giá | ~5 phút |
+| Section 4–5 | C | Cây quyết định, what-if, goal seeking, tối ưu ngân sách và độ vững, đề xuất, đánh giá | ~5 phút |

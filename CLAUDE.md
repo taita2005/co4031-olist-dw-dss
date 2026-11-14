@@ -6,12 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a university group assignment (CO4031 – Data Warehouse & Decision Support Systems, HCMUT, semester 261). The code is complete and verified; the remaining work is the report, slides and submission. **Start with `docs/handoff.md`**, which lists what is done, what remains in order, and the decisions already made.
 
-Other docs, all in Vietnamese: `docs/proposal.md` (the approved design and how it changed), `docs/report.md` (the full raw report with every figure as a table), and `README.md` (how to run, code map, review checklist).
+Other docs, all in Vietnamese: `docs/proposal.md` (the approved design and how it changed), `docs/report.md` (the full raw report with every figure as a table), `docs/metabase.md` (the optional Docker + Metabase path), and `README.md` (how to run, code map, review checklist).
 
 Repo: https://github.com/taita2005/co4031-olist-dw-dss. `lectures/` (lecture slides) and `data/*.csv` exist locally but are git-ignored.
 
 In short:
-- **Stack:** Python + PostgreSQL + Streamlit, with scikit-learn for the DSS model, all in a project-local micromamba env (no Docker).
+- **Stack:** Python + PostgreSQL + Streamlit, with scikit-learn for the DSS model, all in a project-local micromamba env. An optional Docker Compose path (added later, `docs/metabase.md`) runs the same pipeline plus three Metabase dashboards; the micromamba path stays the primary one, and report metrics are not derived from Metabase.
 - **Architecture:** a three-tier DW. CSVs are loaded into a `staging` schema, then into a `dw` schema that has a fact constellation (`fact_sales` at order-item grain, `fact_delivery` at delivered-order grain) sharing `dim_date`, `dim_customer`, `dim_seller` and `dim_product`.
 - **Frontend:** a Streamlit OLAP dashboard.
 - **DSS:** a decision tree (entropy) that predicts bad reviews (score ≤ 2), plus what-if, sensitivity and goal-seeking analysis on late-delivery rate, and a budget optimiser. Decision question: with a limited budget, which states to prioritise to avoid the most bad reviews, and does that priority hold when cost assumptions change (`robustness()` is the main answer; see `docs/plan.md` §1).
@@ -29,8 +29,23 @@ python src/etl/run_etl.py        # validate CSVs, full refresh data/*.csv -> sta
 python src/dss/train_model.py    # writes models/decision_tree.joblib, rules.txt, metrics.json, options.csv, experiments.json (~25 s)
 streamlit run src/app/Home.py    # dashboard
 python -m pytest tests -q        # unit + DB tests (DB tests skip if the DB is down)
+python -m pytest tests/test_optimizer.py -q -k robustness   # single file / single test
 bash scripts/db_stop.sh
 ```
+
+Optional Docker Compose path (details and backup/restore in `docs/metabase.md`):
+
+```bash
+docker compose build
+docker compose run --rm --no-deps bootstrap      # one-time: writes .env (0600) with random passwords, creates .runtime/
+docker compose up -d                             # db-init -> etl-init -> train-init, metabase-init, then app
+docker compose run --rm tools python -m pytest tests -q           # tests inside Compose (also gets METABASE_RO_PASSWORD)
+docker compose run --rm tools python scripts/metabase_verify.py   # reconcile 18 Metabase questions against the DW
+docker compose run --rm tools python scripts/metabase_provision.py --upgrade   # deliberately overwrite managed cards (backs up first)
+docker compose down                              # keeps volumes; never `down -v` unless you mean to wipe DW, Metabase and models
+```
+
+Streamlit is on 127.0.0.1:8501 and Metabase on 127.0.0.1:3000; PostgreSQL is not published to the host. Never commit `.env` or the output of `docker compose config`.
 
 To check pages headlessly, use `streamlit.testing.v1.AppTest` with `src/app` on `sys.path`.
 
@@ -39,7 +54,10 @@ If the project folder is moved, the micromamba env breaks (PostgreSQL has its in
 ## Code architecture
 
 - **Source contracts:** `src/etl/contracts.py` validates every CSV before COPY (header must match exactly, else the run stops; value rules become `source` checks in `meta.check_result`). Update the contract if a source file changes.
-- **SQL files run in order from `run_etl.py`.** `01` and `02` drop and recreate the `staging` and `dw` schemas. `meta.etl_log` lives outside `dw` so it survives refreshes. All cleansing and business rules are in `03_transform_load.sql`. `04` builds the materialized views. `05_checks.sql` writes data quality checks to `meta.check_result`; its expected values are recomputed from staging, never by reusing the transform logic. Add a check there (and a breakage case in `tests/test_etl_checks.py`) whenever you add a business rule.
+- **SQL files run in order from `run_etl.py`.** `01` and `02` drop and recreate the `staging` and `dw` schemas. `meta.etl_log` lives outside `dw` so it survives refreshes. All cleansing and business rules are in `03_transform_load.sql`. `04` builds the materialized views. `05_checks.sql` writes data quality checks to `meta.check_result`; its expected values are recomputed from staging, never by reusing the transform logic. Add a check there (and a breakage case in `tests/test_etl_checks.py`) whenever you add a business rule. `06_bi_views.sql` runs last, inside the same transaction as the load (before commit), and rebuilds the `bi` schema.
+- **BI quality gate (`bi` schema):** `bi.dataset_status.ready` is true only if the latest run has every check, by exact name, in its hard-coded list (27 SQL + 16 source checks), plus a run marker, and none failed; otherwise `bi.sales_items` / `bi.delivery_orders` return no rows. **Renaming or adding a check in `05_checks.sql` or `contracts.py` means updating that list in `06_bi_views.sql`**, or Metabase goes empty. Metabase reads only these views as the `metabase_ro` role (created by `scripts/docker_bootstrap_db.py`, granted in `06`). The two facts are never joined directly.
+- **Metabase (`src/bi/metabase.py`, `scripts/metabase_provision.py`):** card SQL is generated from `dashboard_specs()` (3 dashboards: Executive E1–E5, Sales OLAP S1–S5, Delivery Quality D1–D5); every query starts from `bi.dataset_status`. Provisioning is idempotent: it keeps manual edits unless you pass `--upgrade`, and stores object IDs in `.runtime/metabase/catalog.json` (it stops rather than create duplicates if IDs go stale). Verified results are in `docs/metabase_acceptance.md` and `docs/evidence/metabase/`.
+- **Compose init jobs (`scripts/docker_pipeline.py`):** ETL runs only when both facts are missing. It is skipped when both exist and the latest quality gate passed, and stops (fail-closed) on a partial DW or a failed gate. Training runs only when the model is missing or carries an older `etl_run_id`.
 - **Shared code:** `src/db.py` is used by the ETL, the DSS and the app. Entry scripts add `src/` to `sys.path`; the Streamlit pages do this through `src/app/common.py`, which they must import first.
 - **DSS risk model:** whatif.py does not use `predict_proba` (it is skewed by `class_weight="balanced"`). Probabilities come from `bundle["leaf_rate"]`, the training bad-review rate of each tree leaf. Scenarios pick which late orders to fix using the fixed `rand` column from `load_dataset()`, so results are deterministic and monotone.
 - **Budget optimiser (`src/dss/optimizer.py`):** `train_model.py` pre-computes `models/options.csv` (benefit per state x level from `evaluate_scenario`); cost (BRL) = `freight_fixed` (real freight of the late orders fixed, from the DW) x `surcharge` x `tier[level]`; only those two parameters (`config/cost_assumptions.csv`) are assumptions. `surcharge` only rescales the budget (tested); `tier` shapes the plan (`tier_sensitivity()`). `solve()` is an exact MILP (scipy `milp`/HiGHS); HiGHS prints debug lines to fd 1, silenced by `_quiet_native_output()`. `greedy()` is an incremental (upgrade) greedy baseline; keep it a fair baseline. `robustness()` re-solves under 2 cost models (`COST_MODELS`: real freight / uniform) x 3 tiers x `ROBUST_BUDGETS` and ranks states by the first budget where they are chosen under >= 2/3 of the assumption sets.
