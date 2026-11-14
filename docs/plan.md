@@ -303,3 +303,9 @@ Nhom<XX>_CO4031_Olist.zip
 - [ ] DSS trả lời trọn câu hỏi ở §1 bằng một khuyến nghị cụ thể.
 - [ ] Báo cáo PDF qua hết checklist §5; slide PDF; video (nếu có).
 - [ ] ZIP đúng cấu trúc §8, nộp trước 20:00 ngày 15/11.
+
+## Phụ lục — phần mở rộng Metabase/Docker Compose
+
+Mục 2 ghi lại phạm vi đã chốt trước đó và vẫn là lịch sử đúng tại thời điểm lập kế hoạch. Sau đó nhóm bổ sung tùy chọn Compose toàn bộ stack và ba dashboard Metabase; phần này không thay thế báo cáo hay các con số đã khóa. Thiết kế, lệnh chạy, điều kiện dữ liệu và giới hạn kiểm chứng nằm trong [docs/metabase.md](metabase.md). Chỉ thêm kết quả runtime vào báo cáo sau khi nhóm tự đối chiếu và nghiệm thu.
+
+Compose hiện có các job khởi tạo mặc định: `db-init` → `etl-init` → `train-init`, cùng `metabase-init` chờ ETL và Metabase healthy; app chờ cả model và provision hoàn tất. Vì vậy sau khi tạo `.env` một lần, đặt 8 CSV và build image, lệnh `docker compose up -d` khởi chạy cả stack. ETL chỉ tự tải khi cả hai fact chưa tồn tại, còn DW partial/chưa đạt checks dừng an toàn; model cùng run và provision mặc định được giữ nguyên. Chi tiết thao tác và giới hạn nằm trong [hướng dẫn Compose](metabase.md).
