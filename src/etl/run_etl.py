@@ -164,6 +164,7 @@ def main() -> None:
         checks = run_checks(cur, run_id, reports, staging_stats)
         # step 'run' carries the duration (note only, so re-runs still compare equal)
         log(cur, run_id, "run", "(toàn bộ)", None, None, f"{time.time() - started:.1f} s")
+        run_sql_file(cur, "06_bi_views.sql")
         conn.commit()
     except Exception:
         conn.rollback()
