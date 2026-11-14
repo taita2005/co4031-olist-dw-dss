@@ -3,6 +3,11 @@
 .mamba/
 .env-btl/
 .pgdata/
+.runtime/
+.env
+.env.*
+!.env.example
+data/exports/
 
 # raw data is large; download from Kaggle (see data/README.md)
 data/*.csv
